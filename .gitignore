@@ -1,0 +1,22 @@
+# local data and generated outputs
+data/
+figures/
+outputs/
+
+# working notes, including unpublished results and manuscript correspondence
+notes/
+
+# recordings never belong here, wherever they end up
+*.mat
+*.npy
+*.npz
+*.pkl
+
+# Python working files
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.pytest_cache/
+
+# Windows folder metadata
+Thumbs.db

@@ -1,0 +1,8 @@
+numpy
+scipy
+pandas
+h5py
+mat-io
+matplotlib
+tqdm
+pytest
