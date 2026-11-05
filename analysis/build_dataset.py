@@ -1,4 +1,5 @@
 '''Created on 4 November 2026
+Updated on 4 November 2026: use recomputed repository-local valid trials
 build trial-binned fluorescence and source-table cell labels
 @author: Dinghao Luo
 '''
@@ -63,12 +64,15 @@ def main():
     started = time.perf_counter()
     OUTPUT.mkdir(parents=True, exist_ok=True)
     (ROOT / 'data' / 'binned').mkdir(parents=True, exist_ok=True)
+    status = json.loads((OUTPUT / 'valid_trial_status.json').read_text())
+    if not status['all_compared_match']:
+        raise ValueError('valid-trial comparisons have not passed')
     tic = source_labels()
     labels, reports, alignment = [], [], []
     for session in SESSIONS_4S:
         folder = session_path(session)
         first = load_numeric(folder / 'FirstLick_LL.mat')['FirstLick'].ravel()
-        valid_source = load_numeric(folder / 'ValidTr_FirstLastLick2.mat')['ValidTrAll'].ravel()
+        valid_source = np.load(ROOT / 'data' / 'valid_trials' / f'{session}.npy')
         fields = load_numeric(folder / 'FieldDetectionShuffle' / 'FieldIndexShuffleLastLick99.mat')['FieldID'].ravel()
         if not np.all(valid_source == valid_source.astype(int)) or not np.all(fields == fields.astype(int)):
             raise ValueError(f'{session}: non-integer trial or neuron identifiers')
@@ -146,4 +150,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
