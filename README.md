@@ -13,7 +13,14 @@ The recordings remain on the network drive of Max Planck Florida Institute for N
 
 ## setup
 
+The dedicated `tic-modelling` environment is a Python 3.11 virtual environment at `Z:\Dinghao\code\tic-modelling\data\tic-modelling`, created from the existing user-profile Python because Miniforge was not available. Its interpreter is `Z:\Dinghao\code\tic-modelling\data\tic-modelling\Scripts\python.exe`; the system Python is unchanged, and the environment stays in the ignored data directory.
+
+From the repository root in PowerShell:
+
+```powershell
+& .\data\tic-modelling\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+python -B -m pytest -p no:cacheprovider tests
 ```
-pip install -r requirements.txt
-python -m pytest tests
-```
+
+Without activation, call `& .\data\tic-modelling\Scripts\python.exe` in place of `python` for every analysis command.
