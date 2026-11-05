@@ -1,9 +1,11 @@
 '''Created on 4 November 2026
 bounded receptive-field shapes and least-squares fitting
+Updated on 4 November 2026: share exact coordinate grids between neurons
 @author: Dinghao Luo
 '''
 
 #%% imports
+from hashlib import sha1
 from itertools import product
 
 import numpy as np
@@ -21,10 +23,11 @@ GRIDS = {
     'decay': (np.linspace(0., 3., 10), np.geomspace(.1, 10., 12)),
     'rise': (np.linspace(0., 3., 10), np.geomspace(.1, 10., 12)),
     }
+_GRID_CACHE = {}
 
 #%% shapes
 def field_shape(name, t, interval, params, rho=0., tbar=None):
-    '''evaluate the field, with trial scaling applied only to the specified parameters'''
+    '''evaluate the field, scaling only the specified shape parameters'''
     mu, width = params
     scale = 1. if tbar is None else np.maximum(1. + rho * (interval - tbar) / tbar, .1)
     if name == 'gaussian':
@@ -32,40 +35,67 @@ def field_shape(name, t, interval, params, rho=0., tbar=None):
     x = interval - t if name == 'rise' else t
     tau = width * scale
     z = (x - mu) / .2
-    # log normal cdf avoids overflow in the product of erfc and the exponential
     return np.exp(.5 * (.2 / tau) ** 2 - (x - mu) / tau + log_ndtr(z - .2 / tau))
 
 
-def linear_amplitude(y, shape):
-    centred = shape - np.mean(shape)
-    denom = np.dot(centred, centred)
-    amplitude = max(float(np.dot(centred, y - np.mean(y)) / denom), 0.) if denom > 0 else 0.
-    baseline = float(np.mean(y) - amplitude * np.mean(shape))
-    return baseline, amplitude
+def linear_amplitude(y, shape, weights=None):
+    if weights is None:
+        weights = np.ones(len(y))
+    shape_mean = np.average(shape, weights=weights)
+    y_mean = np.average(y, weights=weights)
+    centred = shape - shape_mean
+    denom = np.dot(weights, centred * centred)
+    amplitude = max(float(np.dot(weights * centred, y - y_mean) / denom), 0.) if denom > 0 else 0.
+    return float(y_mean - amplitude * shape_mean), amplitude
+
+
+def compressed_observations(name, t, interval, y, rho=0.):
+    '''weighted means at identical coordinates preserve the original residual minimiser'''
+    if rho != 0:
+        return t, interval, y, np.ones(len(y))
+    x = interval - t if name == 'rise' else t
+    unique, inverse, counts = np.unique(x, return_inverse=True, return_counts=True)
+    means = np.bincount(inverse, weights=y) / counts
+    if name == 'rise':
+        return np.zeros(len(unique)), unique, means, counts
+    return unique, np.zeros(len(unique)), means, counts
 
 
 def fit_field(name, t, interval, y, rho=0., tbar=None, initial=None):
-    '''profile the non-negative amplitude on a coarse grid, then refine its best point'''
+    '''profile linear coefficients on the coarse grid and through nonlinear refinement'''
     if name == 'flat':
         return np.array([np.mean(y)]), True
-    best = None
-    best_sse = np.inf
-    candidates = product(*GRIDS[name]) if initial is None else [initial]
-    for nonlinear in candidates:
-        shape = field_shape(name, t, interval, nonlinear, rho, tbar)
-        a0, a = linear_amplitude(y, shape)
-        residual = a0 + a * shape - y
-        sse = np.dot(residual, residual)
-        if sse < best_sse:
-            best_sse = sse
-            best = np.array([a0, a, *nonlinear])
+    t, interval, y, weights = compressed_observations(name, t, interval, y, rho)
+    key = None
+    if rho == 0 and initial is None:
+        key = name, sha1(t.tobytes() + interval.tobytes() + weights.tobytes()).digest()
+    cached = _GRID_CACHE.get(key) if key is not None else None
+    if cached is None:
+        nonlinear = np.array(list(product(*GRIDS[name])) if initial is None else [initial])
+        shapes = field_shape(name, t[None, :], interval[None, :], nonlinear.T[:, :, None], rho, tbar)
+        means = np.average(shapes, axis=1, weights=weights)
+        centred = shapes - means[:, None]
+        denom = (centred ** 2) @ weights
+        cached = nonlinear, means, centred, denom
+        if key is not None:
+            _GRID_CACHE[key] = cached
+    nonlinear, means, centred, denom = cached
+    y_mean = np.average(y, weights=weights)
+    covariance = centred @ (weights * (y - y_mean))
+    amplitude = np.maximum(np.divide(covariance, denom, out=np.zeros_like(covariance), where=denom > 0), 0.)
+    score = amplitude * covariance
+    best = nonlinear[np.argmax(score)]
+
+    def residual(params):
+        shape = field_shape(name, t, interval, params, rho, tbar)
+        baseline, amplitude = linear_amplitude(y, shape, weights)
+        return np.sqrt(weights) * (baseline + amplitude * shape - y)
+
     lower, upper = BOUNDS[name]
-    result = least_squares(
-        lambda p: p[0] + p[1] * field_shape(name, t, interval, p[2:], rho, tbar) - y,
-        best, bounds=(np.r_[-np.inf, 0., lower], np.r_[np.inf, np.inf, upper]),
-        x_scale='jac',
-        )
-    return result.x, result.success
+    result = least_squares(residual, best, bounds=(lower, upper), x_scale='jac')
+    shape = field_shape(name, t, interval, result.x, rho, tbar)
+    baseline, amplitude = linear_amplitude(y, shape, weights)
+    return np.r_[baseline, amplitude, result.x], result.success
 
 
 def predict(name, t, interval, params, rho=0., tbar=None):
