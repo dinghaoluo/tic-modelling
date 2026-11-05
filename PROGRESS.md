@@ -45,3 +45,11 @@ Stopped after step 6. No further models, statistics, robustness analyses, refine
 I created a separate dataset using every fluorescence row whose paired FirstLick falls within the requested inclusive interval, retaining the row-to-next-FirstLick pairing and the existing bin masking. The revised alignment check passed its majority gate; per-session trial counts and exceptions are recorded under outputs/fits_v1_1. The earlier output and figure directories were fingerprinted before this run and have not been used as write targets.
 
 The new fitting script retains single-trial least squares, field definitions, parameter bounds, trial-fold splitting and the specified scaling grid, but saves out-of-fold predictions for every observed trial bin and scores their trial means using the requested bin threshold. Paired trial bootstraps recompute both means and bin eligibility for every draw. Tests of the score and bootstrap multiplicities pass. Fitting and the unchanged label-reproduction check are running; summaries and figures have not yet been run.
+
+## 5 November 2026: revised scores completed and figures stopped at the unavailable class
+
+The revised dataset, alignment check, label reproduction, held-out fitting and all requested summary tables completed. Each observed trial bin has a stored out-of-fold prediction, and verification recomputed the saved mean-trace scores from those predictions. Optimisation failures remain flagged without refitting or exclusion; the identifiers, bound flags, trial counts and timings are recorded only under outputs/fits_v1_1.
+
+The figure script saved the Gaussian and decay examples, then stopped because the requested rise-preferring example class was unavailable. I did not substitute cells, alter the preference rule or change the requested sample size. The remaining example and aggregate figures were not generated after that scientific stop. The partial selections and the reason for stopping are recorded in the ignored run report.
+
+The tests pass, and the protected earlier output and figure directories have identical file lists, modification times, sizes and SHA-256 fingerprints to their pre-run state. No source-data folder was changed. Stopped at the figure-stage exception without refinement or interpretation, and nothing was pushed.
