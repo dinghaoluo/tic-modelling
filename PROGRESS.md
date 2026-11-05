@@ -31,3 +31,11 @@ Dataset construction and the alignment gate completed, with session exceptions a
 The first session completed and the remaining sessions are running in parallel with the same trial-fold and bootstrap seeds. The first completed session's timing estimate is recorded in the ignored run log. A coarse-grid score initially overflowed when squaring a very large profiled amplitude; I replaced the expanded expression by its algebraically equivalent amplitude-times-covariance form and restarted the fit so that every saved result uses the stable calculation. The recovery and trial-selection tests passed before that restart. No bounds, models, trials or statistical comparisons were changed.
 
 The summary and plotting scripts have been added but have not yet been run. Generated fits and diagnostics remain under outputs/fits_v1, and nothing has been pushed.
+
+## 5 November 2026: requested analysis completed through the figure checks
+
+The final fitting run completed for every session, with the specified polynomial benchmark, trial bootstrap comparisons and preferred-shape scaling, and every neuron's full-data parameters are saved for each field shape. Optimisation failures were left flagged rather than refitted or excluded; their identifiers and the parameter-bound flags are recorded in the ignored run report. Kori's labels were retained throughout.
+
+I ran the requested summary and plotting scripts, verified that fitted identifiers match the dataset labels and that the held-out trial scores and shared folds are present, checked the saved PNG files and inspected representative layouts. The tests pass in the dedicated environment. The detailed trial comparisons, session exceptions, alignment result, reproduction overlaps, timings, fit-failure identifiers and bound counts are all under outputs/fits_v1; figures remain under figures/fits_v1. No numeric results were added to tracked files in this run.
+
+Stopped after step 6. No further models, statistics, robustness analyses, refinement or interpretation were performed. The source folders were not changed, and nothing was pushed.
