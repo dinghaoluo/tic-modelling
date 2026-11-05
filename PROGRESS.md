@@ -39,3 +39,9 @@ The final fitting run completed for every session, with the specified polynomial
 I ran the requested summary and plotting scripts, verified that fitted identifiers match the dataset labels and that the held-out trial scores and shared folds are present, checked the saved PNG files and inspected representative layouts. The tests pass in the dedicated environment. The detailed trial comparisons, session exceptions, alignment result, reproduction overlaps, timings, fit-failure identifiers and bound counts are all under outputs/fits_v1; figures remain under figures/fits_v1. No numeric results were added to tracked files in this run.
 
 Stopped after step 6. No further models, statistics, robustness analyses, refinement or interpretation were performed. The source folders were not changed, and nothing was pushed.
+
+## 5 November 2026: revised interval selection and mean-trace scoring
+
+I created a separate dataset using every fluorescence row whose paired FirstLick falls within the requested inclusive interval, retaining the row-to-next-FirstLick pairing and the existing bin masking. The revised alignment check passed its majority gate; per-session trial counts and exceptions are recorded under outputs/fits_v1_1. The earlier output and figure directories were fingerprinted before this run and have not been used as write targets.
+
+The new fitting script retains single-trial least squares, field definitions, parameter bounds, trial-fold splitting and the specified scaling grid, but saves out-of-fold predictions for every observed trial bin and scores their trial means using the requested bin threshold. Paired trial bootstraps recompute both means and bin eligibility for every draw. Tests of the score and bootstrap multiplicities pass. Fitting and the unchanged label-reproduction check are running; summaries and figures have not yet been run.
