@@ -53,3 +53,9 @@ The revised dataset, alignment check, label reproduction, held-out fitting and a
 The figure script saved the Gaussian and decay examples, then stopped because the requested rise-preferring example class was unavailable. I did not substitute cells, alter the preference rule or change the requested sample size. The remaining example and aggregate figures were not generated after that scientific stop. The partial selections and the reason for stopping are recorded in the ignored run report.
 
 The tests pass, and the protected earlier output and figure directories have identical file lists, modification times, sizes and SHA-256 fingerprints to their pre-run state. No source-data folder was changed. Stopped at the figure-stage exception without refinement or interpretation, and nothing was pushed.
+
+## 5 November 2026: paired trial-error comparison and earlier-onset bounds
+
+I reused the interval-filtered binned dataset and its source-table labels, leaving the earlier result and figure directories untouched, and started a separate refit with the requested negative lower bound on mu. Preference now uses paired out-of-fold trial mean squared error, with a positive bootstrap gain defined as the comparator's error minus the candidate's error; the reported mean-trace fits do not enter this decision. The first-lick-aligned report assigns the existing observed bin centres to bins counted back from the first lick, without interpolation.
+
+The synthetic recovery, paired-sign and alignment tests passed before fitting. Scaling is fitted on the best point-estimate shape for every cell beating flat, including undecided cells, and the full-data Gaussian fit is classified against the session median interval. The requested summary additions and two-panel plotting code have been prepared but have not yet been run; fitting is still in progress. No refinement or interpretation has been started, and nothing has been pushed.
