@@ -25,3 +25,11 @@ I split the ramp-up TIC traces into the existing early- and late-lick groups and
 I checked the saved threshold widths against the source TIC and time-cell order. The rule uses a low-pass trace, the mode as baseline, and baseline plus 0.5 SD as the crossing threshold. Widths that reach the recording limit are marked as censored. The width table and figure are saved under outputs/width_summary and figures/width_summary.
 
 I assembled an internal reviewer-evidence audit from the paired trial fits, the recovery run, the fitted parameters, interval scaling and the independent threshold widths. It keeps flat and undecided cells in the all-cell table, reports recovery-calibrated undecided rates, and separates supported non-bound parameter summaries from the full decision table. The reviewer response should use this audit to quantify the distributions and their limits rather than force a categorical shape assignment.
+
+## 6 november 2026, ephys sensitivity
+
+I applied the same trial-level held-out comparison to the 102 ephys TICs across the fifteen supplied sessions, retaining the original trial selection and first-lick mask. Without a calcium kernel, the ramp-down group was Gaussian-preferred in 43.3% of cells, exponential-preferred in none, undecided in 20.0%, and flat in 30.0%; the ramp-up group was Gaussian-preferred in 51.4%, exponential-preferred in 5.6%, undecided in 33.3%, and flat in 9.7%. No fits failed.
+
+I then repeated the analysis with the calcium-style exponential kernel. Ramp-down became decay-preferred in 20.0% of cells, with 53.3% undecided; ramp-up remained mostly undecided at 68.1%, with only 6.9% decay-preferred. This makes the kernel a useful sensitivity check, but it does not rescue a categorical ramp-up shape. The reviewer-facing comparison should therefore keep ramp-up unresolved and use the ephys result to show that calcium smoothing is not the whole explanation.
+
+The next comparison is to Cao’s trial-level time constants and interval-scaling analysis. I will keep that comparison method-matched where possible, state the calcium-versus-spike-rate difference explicitly, and report the bound-sensitive and bound-excluded summaries separately.
