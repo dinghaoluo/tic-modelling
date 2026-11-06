@@ -151,3 +151,7 @@ I stopped after the input audit, pending decisions about incomplete post-first-l
 ## 6 November 2026: early and late ramp-up traces
 
 I split the saved ramp-up TIC traces by the existing early- and late-lick ranges and saved the population and session plots under the new ignored output and figure directories. The traces rise gradually in both subsets, while the session traces vary. I am leaving the ramp-up shape unresolved for the formal comparison. Kori's 0.5 SD threshold will be used for the width table, with traces that never cross it recorded as censored.
+
+## 6 November 2026: Kori threshold widths
+
+I checked Kori's saved all-, early- and late-lick width arrays against the source TIC order and saved the group summaries under outputs/width_kori and figures/width_kori. The 0.5 SD threshold remains fixed, and widths that reach the recording limit stay marked as censored.
