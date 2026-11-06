@@ -147,3 +147,7 @@ I submitted every session together to the bounded worker pool to check the last-
 The existing sign-flip recovery uses residuals only on the saved interval window, while the original TIC criterion normalises the full aligned traces and requires post-first-lick activity. Applying that criterion to the existing synthetic window therefore needs a decision about how synthetic observations outside its support should be constructed, rather than silently replacing the original ratio normalisation or dropping its first-lick condition.
 
 I stopped after the input audit, pending decisions about incomplete post-first-lick coverage and the synthetic ratio support. No follow-up model fitting, scaling, session tests, summaries or figures were run; existing results remain unchanged. Nothing has been pushed.
+
+## 6 November 2026: early and late ramp-up traces
+
+I split the saved ramp-up TIC traces by the existing early- and late-lick ranges and saved the population and session plots under the new ignored output and figure directories. The traces rise gradually in both subsets, while the session traces vary. I am leaving the ramp-up shape unresolved for the formal comparison. Kori's 0.5 SD threshold will be used for the width table, with traces that never cross it recorded as censored.
