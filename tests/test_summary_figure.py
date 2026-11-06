@@ -1,5 +1,6 @@
 '''Created on 5 November 2026
-check summary categories, p-value labels and parameter-specific exclusions
+Updated on 5 November 2026
+check summary categories, p-value labels and parameter-specific bound handling
 @author: Dinghao Luo
 '''
 
@@ -33,3 +34,13 @@ def test_parameter_exclusion_is_not_shape_exclusion():
     assert parameter == 'gaussian_mu'
     assert percentage == 50
     np.testing.assert_array_equal(kept.gaussian_mu, [1.])
+
+
+def test_bound_inclusion_keeps_every_cell():
+    cells = pd.DataFrame({'group': ['tic_down', 'tic_down'], 'gaussian_sigma': [.5, 4.],
+                          'gaussian_sigma_at_bound': [False, True]})
+    retained, parameter, percentage = parameter_values(cells, 'tic_down', 'width', include_bound=True)
+    assert parameter == 'gaussian_sigma' and percentage == 50
+    np.testing.assert_array_equal(retained[parameter], [.5, 4.])
+    excluded, _, _ = parameter_values(cells, 'tic_down', 'width')
+    np.testing.assert_array_equal(excluded[parameter], [.5])
