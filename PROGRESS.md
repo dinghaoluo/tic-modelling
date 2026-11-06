@@ -22,6 +22,6 @@ I checked the requested window beyond the first lick before starting another fit
 
 I split the ramp-up TIC traces into the existing early- and late-lick groups and plotted the population and session means. Both groups rise gradually, while the session traces vary substantially. The split does not give a clean exponential rise, so ramp-up remains a group-level unresolved shape question.
 
-I checked Kori's saved threshold widths against the source TIC and time-cell order. Her rule uses a low-pass trace, the mode as baseline, and baseline plus 0.5 SD as the crossing threshold. Widths that reach the recording limit are marked as censored. The width table and figure are saved under outputs/width_kori and figures/width_kori.
+I checked the saved threshold widths against the source TIC and time-cell order. The rule uses a low-pass trace, the mode as baseline, and baseline plus 0.5 SD as the crossing threshold. Widths that reach the recording limit are marked as censored. The width table and figure are saved under outputs/width_summary and figures/width_summary.
 
-The next step is to fold the early/late trace and threshold-width results into the response letter and the reviewer-facing figure set, while keeping the fitted parameter and scaling results from outputs/fits_v1_2 as the formal model comparison.
+The next step is an evidence audit of the formal comparison, including the unresolved and flat-cell proportions, before I draft any response-letter or reviewer-facing figure claims.

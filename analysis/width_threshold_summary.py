@@ -1,6 +1,6 @@
 '''
 2026-11-06
-summarise Kori's threshold-based field widths
+summarise threshold-based field widths
 @author: Dinghao Luo
 '''
 
@@ -19,8 +19,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from utils.project_paths import TABLES_ROOT
 WIDTH_ROOT = Path(r'Z:\Kori\PaperNov2026_CurrentBio\ReviewAnalysis\Width')
-OUTPUT = ROOT / 'outputs' / 'width_kori'
-FIGURES = ROOT / 'figures' / 'width_kori'
+OUTPUT = ROOT / 'outputs' / 'width_summary'
+FIGURES = ROOT / 'figures' / 'width_summary'
 CENSOR_LIMIT = 6.99
 
 
@@ -31,7 +31,7 @@ def check_order(labels, source):
     expected = source[['rec_name', 'neu_id']].rename(columns={'rec_name': 'session'}).reset_index(drop=True)
     actual = labels[['session', 'neu_id']].reset_index(drop=True)
     if not expected.equals(actual):
-        raise ValueError('Kori width order does not match the current labels')
+        raise ValueError('width order does not match the current labels')
 
 
 def load_width(name):
@@ -127,11 +127,11 @@ def main():
         ax.axhline(CENSOR_LIMIT, color='black', linestyle=':', linewidth=.7)
     axes[0].set_ylabel('threshold width (s)')
     fig.tight_layout()
-    fig.savefig(FIGURES / 'width_kori.png', dpi=250)
+    fig.savefig(FIGURES / 'width_summary.png', dpi=250)
     plt.close(fig)
 
     report = {
-        'source_width_rule': 'Kori threshold baseline plus 0.5 SD, with low-pass filtering below 1 Hz',
+        'source_width_rule': 'threshold baseline plus 0.5 SD, with low-pass filtering below 1 Hz',
         'censor_limit_seconds': CENSOR_LIMIT,
         'width_files': ['TICWidthAllTr.mat', 'TICWidthEarlyLickTr.mat', 'TICWidthLateLickTr.mat', 'FieldWidthAllTr.mat'],
         'output': str(OUTPUT),
@@ -141,5 +141,6 @@ def main():
 
 if __name__ == '__main__':
     main()
+
 
 

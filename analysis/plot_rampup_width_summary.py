@@ -1,6 +1,6 @@
 '''
 2026-11-06
-combine the ramp-up and threshold-width figures for Kori
+combine the ramp-up and threshold-width figures
 @author: Dinghao Luo
 '''
 
@@ -13,7 +13,7 @@ import pandas as pd
 
 
 ROOT = Path(__file__).resolve().parents[1]
-OUTPUT = ROOT / 'figures' / 'kori_update'
+OUTPUT = ROOT / 'figures' / 'rampup_width_summary'
 
 
 #%% figure
@@ -21,7 +21,7 @@ OUTPUT = ROOT / 'figures' / 'kori_update'
 def main():
     OUTPUT.mkdir(parents=True, exist_ok=True)
     trace = pd.read_csv(ROOT / 'outputs' / 'early_late_rampup' / 'population_trace.csv')
-    widths = pd.read_csv(ROOT / 'outputs' / 'width_kori' / 'widths.csv')
+    widths = pd.read_csv(ROOT / 'outputs' / 'width_summary' / 'widths.csv')
 
     colours = {'early': '#2f6f9f', 'late': '#b44c4c'}
     groups = ['tic_down', 'tic_up', 'tic_and_time_cell', 'time_cell']
@@ -52,13 +52,14 @@ def main():
 
     axes[1].axhline(6.99, color='black', linestyle=':', linewidth=.7)
     axes[1].set_xticks(range(1, len(groups) + 1), [group.replace('_', ' ') for group in groups], rotation=35, ha='right')
-    axes[1].set(xlabel='', ylabel='threshold width (s)', title='Kori threshold widths')
+    axes[1].set(xlabel='', ylabel='threshold width (s)', title='threshold widths')
     axes[1].spines['top'].set_visible(False)
     axes[1].spines['right'].set_visible(False)
     fig.tight_layout()
-    fig.savefig(OUTPUT / 'kori_update.png', dpi=300)
+    fig.savefig(OUTPUT / 'rampup_width_summary.png', dpi=300)
     plt.close(fig)
 
 
 if __name__ == '__main__':
     main()
+
