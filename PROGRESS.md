@@ -24,4 +24,4 @@ I split the ramp-up TIC traces into the existing early- and late-lick groups and
 
 I checked the saved threshold widths against the source TIC and time-cell order. The rule uses a low-pass trace, the mode as baseline, and baseline plus 0.5 SD as the crossing threshold. Widths that reach the recording limit are marked as censored. The width table and figure are saved under outputs/width_summary and figures/width_summary.
 
-The next step is an evidence audit of the formal comparison, including the unresolved and flat-cell proportions, before I draft any response-letter or reviewer-facing figure claims.
+I assembled an internal reviewer-evidence audit from the paired trial fits, the recovery run, the fitted parameters, interval scaling and the independent threshold widths. It keeps flat and undecided cells in the all-cell table, reports recovery-calibrated undecided rates, and separates supported non-bound parameter summaries from the full decision table. The reviewer response should use this audit to quantify the distributions and their limits rather than force a categorical shape assignment.
