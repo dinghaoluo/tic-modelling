@@ -1,6 +1,7 @@
 '''
 2026-11-06
-fit held-out receptive-field models to ephys trials
+Updated on 2026-11-07
+fit held-out receptive-field models to ephys trials in current or wider windows
 @author: Dinghao Luo
 '''
 
@@ -30,6 +31,7 @@ CLUSTER_FILE = Path(r'Z:\Kori\immobile_code\Ephys\Oct2026\PAC_Kmeans_noPCA_start
 OUTPUT = ROOT / 'outputs' / 'ephys_trial_models'
 FIGURES = ROOT / 'figures' / 'ephys_trial_models'
 KERNEL = False
+WIDER = False
 SHAPES = ['gaussian', 'decay', 'rise']
 BOUNDS = {
     'gaussian': (np.array([0., .05]), np.array([7., 4.])),
@@ -41,8 +43,12 @@ GRIDS = {
     'decay': (np.linspace(0., 3., 10), np.geomspace(.1, 10., 12)),
     'rise': (np.linspace(0., 3., 10), np.geomspace(.1, 10., 12)),
 }
-BIN_END = np.arange(1, 141) * .05
-BIN_TIME = BIN_END - .026
+CURRENT_BIN_END = np.arange(1, 141) * .05
+CURRENT_BIN_TIME = CURRENT_BIN_END - .026
+WIDER_BIN_END = np.r_[np.arange(-19, 1) * .05, CURRENT_BIN_END]
+WIDER_BIN_TIME = np.r_[np.arange(-20, 0) * .05 + .024, CURRENT_BIN_TIME]
+BIN_END = CURRENT_BIN_END
+BIN_TIME = CURRENT_BIN_TIME
 SEED = 20261106
 
 
@@ -247,7 +253,7 @@ def make_report(frame, means):
     report = '\n'.join([
         '# ephys trial-level shape comparison',
         '',
-        'The ephys traces were binned to the same 50 ms interval grid as the calcium analysis. The original trial selection and first-lick mask were retained. The held-out trial scoring and bootstrap decision rule are unchanged; the output folder records whether the exponential kernel was enabled.',
+        'The ephys traces were binned to the same 50 ms interval grid as the calcium analysis. The original trial selection and first-lick mask were retained. The held-out trial scoring and bootstrap decision rule are unchanged; the output folder records the window and whether the exponential kernel was enabled.',
         '',
         '## cluster centre of mass',
         pd.DataFrame([{'cluster_number': key, 'mean_profile_centre': value} for key, value in means.items()]).to_string(index=False),
@@ -263,8 +269,16 @@ def make_report(frame, means):
 
 
 def make_figure(frame, decisions):
-    calcium = pd.read_csv(ROOT / 'outputs' / 'fits_v1_2' / 'fits_all.csv')
-    calcium = calcium[calcium.group.isin(['tic_down', 'tic_up'])].copy()
+    if WIDER:
+        parts = []
+        for path in sorted((ROOT / 'outputs' / 'undecided_check').glob('*_wider_contrasts.csv')):
+            part = pd.read_csv(path)
+            parts.append(part[part.primary][['group', 'decision']])
+        calcium = pd.concat(parts, ignore_index=True)
+        calcium['preferred'] = calcium.decision
+    else:
+        calcium = pd.read_csv(ROOT / 'outputs' / 'fits_v1_2' / 'fits_all.csv')
+        calcium = calcium[calcium.group.isin(['tic_down', 'tic_up'])].copy()
     calcium['modality'] = 'calcium'
     calcium['group'] = calcium.group.map({'tic_down': 'ramp-down', 'tic_up': 'ramp-up'})
     ephys = frame.copy()
@@ -295,17 +309,24 @@ def make_figure(frame, decisions):
 
 #%% run
 
-def init_worker(kernel):
-    global KERNEL
+def init_worker(kernel, wider):
+    global KERNEL, WIDER, BIN_END, BIN_TIME
     KERNEL = kernel
+    WIDER = wider
+    BIN_END = WIDER_BIN_END if WIDER else CURRENT_BIN_END
+    BIN_TIME = WIDER_BIN_TIME if WIDER else CURRENT_BIN_TIME
 
 def main():
-    global OUTPUT, FIGURES, KERNEL
+    global OUTPUT, FIGURES, KERNEL, WIDER, BIN_END, BIN_TIME
     parser = argparse.ArgumentParser()
     parser.add_argument('--kernel', action='store_true')
+    parser.add_argument('--wider', action='store_true')
     args = parser.parse_args()
     KERNEL = args.kernel
-    suffix = '_kernel' if KERNEL else ''
+    WIDER = args.wider
+    BIN_END = WIDER_BIN_END if WIDER else CURRENT_BIN_END
+    BIN_TIME = WIDER_BIN_TIME if WIDER else CURRENT_BIN_TIME
+    suffix = ('_wider' if WIDER else '') + ('_kernel' if KERNEL else '')
     OUTPUT = ROOT / 'outputs' / f'ephys_trial_models{suffix}'
     FIGURES = ROOT / 'figures' / f'ephys_trial_models{suffix}'
     OUTPUT.mkdir(parents=True, exist_ok=True)
@@ -315,7 +336,7 @@ def main():
     jobs = [(path, labels) for path in paths]
     rows = []
     with ProcessPoolExecutor(max_workers=min(12, len(jobs)),
-                             initializer=init_worker, initargs=(KERNEL,)) as executor:
+                             initializer=init_worker, initargs=(KERNEL, WIDER)) as executor:
         for result in executor.map(fit_job, jobs):
             rows.extend(result)
     frame = pd.DataFrame(rows)
