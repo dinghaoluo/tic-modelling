@@ -1,5 +1,5 @@
 '''Created on 5 November 2026
-Updated on 5 November 2026
+Updated on 7 November 2026
 assemble held-out comparisons with a separate wider-window summary mode
 @author: Dinghao Luo
 '''
@@ -243,7 +243,7 @@ def make_figure(table, fits, suffix='', wider=False):
                xticks=range(len(LABELS)), xticklabels=[f'{label}\n(n = {int(selected.loc[label, "n cells"])})' for label in LABELS])
         ax.legend(frameon=False, loc='upper center', bbox_to_anchor=(.5, 1.28), ncol=3)
     for ax, panel, measure, title, ylabel in zip(axes[2:], ['C', 'D', 'E'],
-            ['peak', 'width', 'ramp rate'], ['Peak time', 'Width', 'Ramp rate'],
+            ['peak', 'width', 'ramp rate'], ['Peak time', 'Width', 'Time constant'],
             ['Peak time (s)', 'Width (s)', 'Time constant (s)']):
         values = [parameter_values(fits, group, measure, include_bound=wider and measure != 'peak')[0][parameter_values(fits, group, measure)[1]].to_numpy()
                   for group in GROUPS]
