@@ -107,6 +107,7 @@ def make_figure(full, calibration):
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
+    plt.rcParams.update({'pdf.fonttype': 42, 'ps.fonttype': 42, 'svg.fonttype': 'none', 'pdf.use14corefonts': False})
     fig, axes = plt.subplots(1, 2, figsize=(10, 4))
     colours = {'tic_down': '#4477AA', 'tic_up': '#CC6677', 'time_cell': '#228833'}
     for group, part in full.groupby('group'):
@@ -125,6 +126,7 @@ def make_figure(full, calibration):
     fig.suptitle('wider-window held-out evidence audit')
     fig.tight_layout()
     fig.savefig(FIGURES / 'evidence_audit.png', dpi=300)
+    fig.savefig(FIGURES / 'evidence_audit.pdf')
     plt.close(fig)
 
 

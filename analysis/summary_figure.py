@@ -219,7 +219,7 @@ def make_figure(table, fits, suffix='', wider=False):
 
     plt.rcParams.update({'font.size': 11, 'axes.titlesize': 14, 'axes.labelsize': 12,
                          'xtick.labelsize': 11, 'ytick.labelsize': 11, 'legend.fontsize': 10,
-                         'pdf.fonttype': 42})
+                         'pdf.fonttype': 42, 'ps.fonttype': 42, 'svg.fonttype': 'none', 'pdf.use14corefonts': False})
     fig = plt.figure(figsize=(16., 11.))
     grid = fig.add_gridspec(2, 6, height_ratios=[1., 1.15], hspace=.55, wspace=1.)
     axes = [fig.add_subplot(grid[0, :3]), fig.add_subplot(grid[0, 3:]),

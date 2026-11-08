@@ -124,6 +124,7 @@ def model_summary():
 
 
 def figure(parameters, widths, table):
+    plt.rcParams.update({'pdf.fonttype': 42, 'ps.fonttype': 42, 'svg.fonttype': 'none', 'pdf.use14corefonts': False})
     fig, axes = plt.subplots(1, 3, figsize=(11, 4))
     values = {'field_width': widths, 'peak': parameters[['session', 'group', 'peak']],
               'tau_unbound': parameters[['session', 'group', 'tau_unbound']]}
@@ -143,6 +144,7 @@ def figure(parameters, widths, table):
     fig.suptitle('wider-window pooled parameter distributions')
     fig.tight_layout()
     fig.savefig(FIGURES / 'wider_parameter_distributions.png', dpi=300)
+    fig.savefig(FIGURES / 'wider_parameter_distributions.pdf')
     plt.close(fig)
 
 

@@ -48,6 +48,7 @@ def box_values(frame, column, group, unbound=True):
 
 def make_figure(parameters, summary):
     from matplotlib.lines import Line2D
+    plt.rcParams.update({'pdf.fonttype': 42, 'ps.fonttype': 42, 'svg.fonttype': 'none', 'pdf.use14corefonts': False})
     fig, axes = plt.subplots(2, 2, figsize=(11, 8))
     colours = {'tic_down': '#4477AA', 'tic_up': '#CC6677', 'time_cell': '#66AA55'}
 
@@ -57,17 +58,17 @@ def make_figure(parameters, summary):
                                medianprops={'color': 'black', 'linewidth': 1.5})
     boxes['boxes'][0].set(facecolor='#66AA55', alpha=.6)
     axes[0, 0].hlines(.69, .65, 1.35, color='#AA4499', linewidth=2.5)
-    axes[0, 0].set(xticks=[1], xticklabels=['Our time cells'], ylabel='Gaussian width (s)',
+    axes[0, 0].set(xticks=[1], xticklabels=['Time cells'], ylabel='Gaussian width (s)',
                    title='Hippocampal time-cell width')
     axes[0, 0].legend(handles=[Line2D([0], [0], color='#AA4499', linewidth=2.5, label='Cao et al. 2022')],
                       frameon=False, fontsize=8)
 
     alpha, alpha_low, alpha_high = summary['alpha']
     axes[0, 1].errorbar([0], [alpha], yerr=[[alpha - alpha_low], [alpha_high - alpha]],
-                        fmt='o', color='#66AA55', capsize=5, label='Our time cells')
+                        fmt='o', color='#66AA55', capsize=5, label='Time cells')
     axes[0, 1].errorbar([1], [.92], yerr=[[.92 - .73], [1.11 - .92]],
                         fmt='_', color='#AA4499', markersize=18, capsize=5, label='Cao et al. 2022')
-    axes[0, 1].set(xticks=[0, 1], xticklabels=['Our time cells', 'Cao et al. 2022'],
+    axes[0, 1].set(xticks=[0, 1], xticklabels=['Time cells', 'Cao et al. 2022'],
                    ylabel='peak-time power exponent', title='Time-cell peak distribution')
     axes[0, 1].legend(frameon=False, fontsize=8)
 
@@ -111,9 +112,9 @@ def main():
     time_mu = parameters.loc[parameters.group.eq('time_cell') & ~parameters.gaussian_mu_at_bound, 'gaussian_mu'].to_numpy()
     alpha = bootstrap_alpha(time_mu)
     rows = [
-        dict(quantity='time-cell Gaussian width', our_median=np.median(box_values(parameters, 'gaussian_sigma', 'time_cell', False)),
+        dict(quantity='time-cell Gaussian width', this_study_median=np.median(box_values(parameters, 'gaussian_sigma', 'time_cell', False)),
              published_median=.69, published_low=np.nan, published_high=np.nan, note='parameter definitions differ'),
-        dict(quantity='time-cell peak power exponent', our_median=alpha[0], our_low=alpha[1], our_high=alpha[2],
+        dict(quantity='time-cell peak power exponent', this_study_median=alpha[0], this_study_low=alpha[1], this_study_high=alpha[2],
              published_median=.92, published_low=.73, published_high=1.11, note='truncated power-law fit'),
     ]
     for group, shape, label, median, low, high in [('tic_down', 'decay', 'past', 2.25, .59, 4.),
@@ -121,12 +122,12 @@ def main():
         values_tau = box_values(parameters, f'{shape}_tau', group, True)
         values_mu = box_values(parameters, f'{shape}_mu', group, True)
         rows.extend([
-            dict(quantity=f'{label} tau', group=group, our_median=np.median(values_tau), our_low=np.percentile(values_tau, 25),
-                 our_high=np.percentile(values_tau, 75), published_median=median, published_low=low, published_high=high,
+            dict(quantity=f'{label} tau', group=group, this_study_median=np.median(values_tau), this_study_low=np.percentile(values_tau, 25),
+                 this_study_high=np.percentile(values_tau, 75), published_median=median, published_low=low, published_high=high,
                  bound_pct=100 * parameters.loc[parameters.group.eq(group), f'{shape}_tau_at_bound'].mean(),
-                 note='tau-bound-excluded our values'),
-            dict(quantity=f'{label} peak', group=group, our_median=np.median(values_mu), our_low=np.percentile(values_mu, 25),
-                 our_high=np.percentile(values_mu, 75), published_median=np.nan, published_low=np.nan, published_high=np.nan,
+                 note='tau-bound-excluded wider-window values'),
+            dict(quantity=f'{label} peak', group=group, this_study_median=np.median(values_mu), this_study_low=np.percentile(values_mu, 25),
+                 this_study_high=np.percentile(values_mu, 75), published_median=np.nan, published_low=np.nan, published_high=np.nan,
                  bound_pct=100 * parameters.loc[parameters.group.eq(group), f'{shape}_mu_at_bound'].mean(),
                  note='published peak comparison shown in figure'),
         ])
@@ -135,7 +136,7 @@ def main():
     table.to_csv(OUTPUT / 'paper_parameter_comparison.csv', index=False)
     (OUTPUT / 'paper_parameter_comparison.md').write_text(
         '# paper parameter comparison\n\n' +
-        'The figure compares quantities with matching event-relative definitions where possible. Our distributions use the wider-window calcium fits. Published values are shown as benchmarks; they were obtained with different data modalities and fitting models. Tau distributions use our tau-bound-excluded values and report the bound rate separately.\n\n' +
+        'The figure compares quantities with matching event-relative definitions where possible. The wider-window calcium distributions use the wider-window calcium fits. Published values are shown as benchmarks; they were obtained with different data modalities and fitting models. Tau distributions use the tau-bound-excluded wider-window values and report the bound rate separately.\n\n' +
         table.to_string(index=False), encoding='utf-8')
     make_figure(parameters, summary)
     print(table.to_string(index=False))

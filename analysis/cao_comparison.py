@@ -160,9 +160,9 @@ def main():
     lines = [
         '# Cao comparison',
         '',
-        'The comparison uses the same event-relative quantities where they are defined in both analyses: peak location, exponential time constant tau, and the linear interval-scaling parameter rho. Our tau values come from the calcium-kernel fits and Cao et al. use hierarchical Bayesian spike-rate models, so the numerical comparison is a benchmark rather than a claim of identical estimators.',
+        'The comparison uses the same event-relative quantities where they are defined in both analyses: peak location, exponential time constant tau, and the linear interval-scaling parameter rho. The wider-window calcium tau values come from the calcium-kernel fits and Cao et al. use hierarchical Bayesian spike-rate models, so the numerical comparison is a benchmark rather than a claim of identical estimators.',
         '',
-        'Tau rows distinguish all finite fits, fits whose tau is not at the search bound, and the latter subset after requiring the shape to beat the flat guard. The all-fit bound percentage is reported in every row. Because the ramp-down supported subset contains only a small number of cells, I do not fit a power law or mixture to our tau distribution.',
+        'Tau rows distinguish all finite fits, fits whose tau is not at the search bound, and the latter subset after requiring the shape to beat the flat guard. The all-fit bound percentage is reported in every row. Because the ramp-down supported subset contains only a small number of cells, I do not fit a power law or mixture to the calcium tau distribution.',
         '',
         '## parameter comparison',
         markdown(table),
@@ -173,7 +173,7 @@ def main():
         markdown(pd.DataFrame(model_rows)),
         '',
         '## interpretation',
-        'The boundary-localised peaks are directionally comparable to Cao. The tau medians are sensitive to the upper search bound, especially for ramp-up, and the bound-excluded values should be the primary descriptive comparison. The interval-scaling parameter uses the same linear form as Cao, but our rho estimates are sparse and often bound-limited, so the early/late and delay-length manipulations remain the stronger scaling evidence.',
+        'The boundary-localised peaks are directionally comparable to Cao. The tau medians are sensitive to the upper search bound, especially for ramp-up, and the bound-excluded values should be the primary descriptive comparison. The interval-scaling parameter uses the same linear form as Cao, but the calcium rho estimates are sparse and often bound-limited, so the early/late and delay-length manipulations remain the stronger scaling evidence.',
     ]
     (OUTPUT / 'cao_method_matched.md').write_text('\n'.join(lines), encoding='utf-8')
     make_figure(tau_rows)
