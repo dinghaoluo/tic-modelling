@@ -1,4 +1,4 @@
-'''
+﻿'''
 2026-11-07
 summarise wider-window parameters and the aligned Cao comparison
 @author: Dinghao Luo
@@ -129,7 +129,7 @@ def figure(parameters, widths, table):
     values = {'field_width': widths, 'peak': parameters[['session', 'group', 'peak']],
               'tau_unbound': parameters[['session', 'group', 'tau_unbound']]}
     labels = {'field_width': '0.5 SD width (s)', 'peak': 'Gaussian peak (s)',
-              'tau_unbound': 'matched tau (wider window, bound excluded, s)'}
+              'tau_unbound': 'matched tau (bound excluded, s)'}
     colours = {'tic': '#4477AA', 'time': '#AA55AA'}
     for axis, name in zip(axes, ['field_width', 'peak', 'tau_unbound']):
         for group in ['tic', 'time']:
@@ -141,10 +141,10 @@ def figure(parameters, widths, table):
         axis.spines['top'].set_visible(False)
         axis.spines['right'].set_visible(False)
     axes[0].legend(frameon=False, fontsize=8)
-    fig.suptitle('wider-window pooled parameter distributions')
+    fig.suptitle('TIC and time-cell parameter distributions')
     fig.tight_layout()
-    fig.savefig(FIGURES / 'wider_parameter_distributions.png', dpi=300)
-    fig.savefig(FIGURES / 'wider_parameter_distributions.pdf')
+    fig.savefig(FIGURES / 'parameter_distributions.png', dpi=300)
+    fig.savefig(FIGURES / 'parameter_distributions.pdf')
     plt.close(fig)
 
 
@@ -165,8 +165,8 @@ def main():
     pairs.to_csv(OUTPUT / 'wider_parameter_session_pairs.csv', index=False)
     cao.to_csv(OUTPUT / 'wider_cao_summary.csv', index=False)
     models.to_csv(OUTPUT / 'wider_model_summary.csv', index=False)
-    report = ['# wider-window parameter summary', '',
-              'All model parameters and model comparisons in this report come from the one-second pre-last-lick wider-window analysis. Width is the independent 0.5 SD threshold measurement. Peak and tau distributions report bound-excluded summaries where indicated; the all-fit tau rows retain the upper-bound values explicitly.', '',
+    report = ['# parameter distribution summary', '',
+              'All model parameters and model comparisons in this report come from the analysis interval used for the fitted traces. Width is the independent 0.5 SD threshold measurement. Peak and tau distributions report bound-excluded summaries where indicated; the all-fit tau rows retain the upper-bound values explicitly.', '',
               '## pooled parameters', markdown(table), '',
               '## Cao comparison', markdown(cao), '',
               '## held-out model comparison', markdown(models), '',
@@ -180,3 +180,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
