@@ -127,10 +127,10 @@ def make_figure(parameters, session_pairs, alpha, alpha_samples):
     axis_a, axis_b, axis_c, axis_d = axes.flat
 
     # α is the power-law exponent of the time-cell peak-location distribution
-    axis_a.set_title('Time-cell peak locations')
+    axis_a.set_title('Time-cell peak distribution')
     data_box(axis_a, 1, alpha_samples, COLOURS['study'])
     summary_box(axis_a, 0, .92, .73, 1.11, COLOURS['published'])
-    axis_a.set(yticks=[0, 1], yticklabels=['Cao et al. 2022', 'Time cells'], xlabel='Peak-location exponent, alpha', xlim=(.55, 1.7))
+    axis_a.set(yticks=[0, 1], yticklabels=['Cao et al. 2022', 'Time cells'], xlabel='Exponent of peak-time distribution, alpha', xlim=(.55, 1.7))
     format_axis(axis_a)
 
     axis_b.set_title('Time constant (tau)')
