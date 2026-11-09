@@ -26,7 +26,7 @@ LABELS = {
 COLOURS = {
     'tic_down': '#228833',
     'tic_up': '#4477AA',
-    'time_cell': '#AA3377',
+    'time_cell': '#9467BD',
 }
 
 
@@ -36,7 +36,7 @@ def load_parameters():
     return pd.concat([pd.read_csv(path) for path in paths], ignore_index=True)
 
 
-def parameter_values(parameters, group, measure):
+def parameter_values(parameters, group, measure, include_bound=False):
     part = parameters[parameters.group.eq(group)].copy()
     if measure == 'Gaussian μ':
         parameter = 'gaussian_mu'
@@ -45,13 +45,15 @@ def parameter_values(parameters, group, measure):
     else:
         parameter = 'rise_tau' if group == 'tic_up' else 'decay_tau'
     bound = f'{parameter}_at_bound'
-    part = part.loc[~part[bound].astype(bool) & part[parameter].notna()]
-    return part, parameter
+    if not include_bound:
+        part = part.loc[~part[bound].astype(bool)]
+    part = part.loc[part[parameter].notna()]
+    return part, parameter, 100 * parameters.loc[parameters.group.eq(group), bound].astype(bool).mean()
 
 
 def paired_test(parameters, group, measure):
-    left, parameter = parameter_values(parameters, group, measure)
-    right, right_parameter = parameter_values(parameters, 'time_cell', measure)
+    left, parameter, _ = parameter_values(parameters, group, measure)
+    right, right_parameter, _ = parameter_values(parameters, 'time_cell', measure)
     pairs = []
     for session in sorted(set(left.session) & set(right.session)):
         left_values = left.loc[left.session.eq(session), parameter]
@@ -68,7 +70,7 @@ def summary_table(parameters):
     for group in GROUPS:
         for measure in ['Gaussian μ', 'Gaussian σ', 'Time constant τ']:
             actual_measure = 'Time constant τ' if measure == 'Time constant τ' else measure
-            cells, parameter = parameter_values(parameters, group, actual_measure)
+            cells, parameter, pct_at_bound = parameter_values(parameters, group, actual_measure)
             row = {
                 'group': LABELS[group],
                 'measure': measure,
@@ -80,6 +82,7 @@ def summary_table(parameters):
                 'q75': cells[parameter].quantile(.75),
                 'sd': cells[parameter].std(ddof=1),
                 'p_vs_time_cells': np.nan,
+                'pct_at_bound': pct_at_bound,
             }
             if group != 'time_cell':
                 n_sessions, p_value, _ = paired_test(parameters, group, actual_measure)
@@ -116,9 +119,12 @@ def make_figure(parameters, table):
     ]
     for axis, (measure, xlabel) in zip(axes, measures):
         pieces = []
+        bounds = []
         for group in GROUPS:
-            cells, parameter = parameter_values(parameters, group, measure)
+            cells, parameter, _ = parameter_values(parameters, group, measure, include_bound=True)
+            unbound, _, _ = parameter_values(parameters, group, measure)
             pieces.append(cells[parameter].to_numpy())
+            bounds.append(cells.loc[~cells.index.isin(unbound.index), parameter].to_numpy())
         all_values = np.concatenate(pieces)
         bins = np.linspace(np.nanmin(all_values), np.nanmax(all_values), 26)
         for group, values in zip(GROUPS, pieces):

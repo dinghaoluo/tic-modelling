@@ -46,7 +46,7 @@ COLOURS = {
     'tic_down': '#228833',
     'tic_up': '#4477AA',
     'tic_and_time_cell': '#999999',
-    'time_cell': '#AA3377',
+    'time_cell': '#9467BD',
 }
 
 
@@ -62,6 +62,11 @@ def load_profiles(path):
         squeeze_me=True,
         verify_compressed_data_integrity=False,
     )['avgFR_profile'], dtype=float)
+
+
+def load_wider_parameters(root):
+    wide = root / 'outputs' / 'undecided_check'
+    return pd.concat([pd.read_csv(path) for path in sorted(wide.glob('*_wider_parameters.csv'))], ignore_index=True)
 
 
 def load_first_lick_medians(path):
@@ -147,17 +152,28 @@ def power_exponent(values, uppers):
     values, uppers = values[keep], uppers[keep]
     if not len(values) or np.any(uppers <= .35):
         raise ValueError('invalid power-law support')
-    log_integrals = np.log(uppers / .35)
+    if np.allclose(uppers, uppers[0]):
+        log_ratio = np.log(float(uppers[0]) / .35)
 
-    def nll(alpha):
-        beta = 1. - alpha
-        if abs(beta) < 1e-7:
-            normalisers = log_integrals
-        else:
-            normalisers = np.log(
-                np.expm1(beta * log_integrals) / beta
-            )
-        return alpha * np.log(values / .35).sum() + normalisers.sum()
+        def nll(alpha):
+            beta = 1. - alpha
+            if abs(beta) < 1e-7:
+                log_integral = np.log(log_ratio)
+            elif beta * log_ratio > 50:
+                log_integral = beta * log_ratio + np.log1p(-np.exp(-beta * log_ratio)) - np.log(beta)
+            else:
+                log_integral = np.log(np.expm1(beta * log_ratio) / beta)
+            return alpha * np.log(values / .35).sum() + len(values) * log_integral
+    else:
+        log_integrals = np.log(uppers / .35)
+
+        def nll(alpha):
+            beta = 1. - alpha
+            if abs(beta) < 1e-7:
+                normalisers = log_integrals
+            else:
+                normalisers = np.log(np.expm1(beta * log_integrals) / beta)
+            return alpha * np.log(values / .35).sum() + normalisers.sum()
 
     result = minimize_scalar(nll, bracket=(-2., 4.))
     if not result.success:
@@ -188,14 +204,18 @@ def alpha_table(fits, first_lick):
     return pd.DataFrame([
         {
             'support': '0.35 to 7 s',
-            'n_cells': current[3],
+            'cell_set': 'time cells (n = 1177), overlap excluded',
+            'n_cells': len(fits[fits.group.eq('time_cell')]),
+            'n_supported': current[3],
             'alpha': current[0],
             'bootstrap_low': current[1],
             'bootstrap_high': current[2],
         },
         {
             'support': '0.35 to session median first lick',
-            'n_cells': session_support[3],
+            'cell_set': 'time cells (n = 1177), overlap excluded',
+            'n_cells': len(fits[fits.group.eq('time_cell')]),
+            'n_supported': session_support[3],
             'alpha': session_support[0],
             'bootstrap_low': session_support[1],
             'bootstrap_high': session_support[2],
@@ -315,6 +335,7 @@ def main():
         'Variable' / 'Path4sData' / 'FirstLickMedSessions.mat'
     )
     fits = pd.read_csv(root / 'outputs' / 'fits_v1_2' / 'fits_all.csv')
+    alpha_fits = load_wider_parameters(root)
     widths = pd.read_csv(root / 'outputs' / 'width_summary' / 'widths.csv')
     peaks = peak_table(
         widths,
@@ -327,7 +348,7 @@ def main():
         fits,
         figures / 'threshold_peak_vs_gaussian_mu_time_cells',
     )
-    alpha = alpha_table(fits, first_lick)
+    alpha = alpha_table(alpha_fits, first_lick)
     width = width_table(root, raw_root)
     exclusions = trial_exclusion_table(root)
 

@@ -30,7 +30,7 @@ FIGURES = ROOT / 'figures' / 'model_comparison'
 FITS = ROOT / 'outputs' / 'fits_v1_2'
 GROUPS = ['tic_down', 'tic_up', 'time_cell']
 LABELS = ['Ramp-down TIC', 'Ramp-up TIC', 'Time cell']
-COLOURS = ['#228833', '#4477AA', '#AA3377']
+COLOURS = ['#228833', '#4477AA', '#9467BD']
 PRIMARY = {'tic_down': 'gaussian_minus_decay', 'tic_up': 'gaussian_minus_rise',
            'time_cell': 'gaussian_minus_decay'}
 BASE_COLUMNS = ['group', 'measure', 'n cells', 'n sessions', 'median', 'IQR low', 'IQR high',
@@ -246,16 +246,16 @@ def make_figure(table, fits, suffix='', wider=False):
     for ax, panel, measure, title, ylabel in zip(axes[2:], ['C', 'D', 'E'],
             ['peak', 'width', 'ramp rate'], ['Peak time', 'Gaussian width', 'Time constant'],
             ['Peak time (s)', 'Gaussian width, σ (s)', 'Time constant, τ (s)']):
-        values = [parameter_values(fits, group, measure, include_bound=wider and measure != 'peak')[0][parameter_values(fits, group, measure)[1]].to_numpy()
+        values = [parameter_values(fits, group, measure, include_bound=wider)[0][parameter_values(fits, group, measure)[1]].to_numpy()
                   for group in GROUPS]
         boxes = ax.boxplot(values, labels=LABELS, showfliers=False, patch_artist=True,
                            medianprops={'color': 'black', 'linewidth': 1.5})
         for box, colour in zip(boxes['boxes'], COLOURS):
             box.set(facecolor=colour, alpha=.55)
-        if wider and measure in ['width', 'ramp rate']:
+        if wider:
             for i, group in enumerate(GROUPS):
                 cells, parameter, _ = parameter_values(fits, group, measure, include_bound=True)
-                bound = cells.loc[cells[f'{parameter}_at_bound'], parameter].to_numpy()
+                bound = cells.loc[cells[f'{parameter}_at_bound'].astype(bool), parameter].to_numpy()
                 ax.scatter(i + 1 + np.linspace(-.13, .13, len(bound)), bound, marker='x',
                            color=COLOURS[i], s=22, linewidths=.8, zorder=4)
         ax.set(title=title, ylabel=ylabel)
@@ -356,18 +356,23 @@ def wider_main():
                          **distribution(cells.mean_contrast), 'comparison': f'{a} minus {b}', 'p for median': p,
                          **{'% ' + category: value for category, value in zip(categories, percentages)}})
         for measure in ['peak', 'width', 'ramp rate']:
-            for bound_subset in (['excluded'] if measure == 'peak' else ['included', 'excluded']):
-                retained, parameter, percentage = parameter_values(parameters, group, measure, include_bound=bound_subset == 'included')
+            stats_left, stats_parameter, percentage = parameter_values(parameters, group, measure, include_bound=False)
+            stats_right, stats_right_parameter, _ = parameter_values(parameters, 'time_cell', measure, include_bound=False)
+            if group != 'time_cell':
+                stats_p, stats_sd_p, stats_pairs = paired_parameters(
+                    stats_left, stats_right, stats_parameter, stats_right_parameter)
+                pair_rows.extend([dict(group=label, measure=measure, bound_subset='excluded', **record)
+                                  for record in stats_pairs.to_dict('records')])
+            else:
+                stats_p, stats_sd_p = np.nan, np.nan
+            for bound_subset in ['included', 'excluded']:
+                retained, parameter, _ = parameter_values(
+                    parameters, group, measure, include_bound=bound_subset == 'included')
                 row = {'group': label, 'measure': measure, 'bound subset': bound_subset,
                        'n cells': len(retained), 'n sessions': retained.session.nunique(),
                        **distribution(retained[parameter]), '% cells at bound': percentage,
-                       'source parameter': parameter, 'comparison': 'reference' if group == 'time_cell' else 'Time cell'}
-                if group != 'time_cell':
-                    reference, ref_parameter, _ = parameter_values(parameters, 'time_cell', measure, include_bound=bound_subset == 'included')
-                    p, sd_p, pairs = paired_parameters(retained, reference, parameter, ref_parameter)
-                    row.update({'n sessions': len(pairs), 'p for median': p, 'p for SD': sd_p})
-                    pair_rows.extend([dict(group=label, measure=measure, bound_subset=bound_subset, **record)
-                                      for record in pairs.to_dict('records')])
+                       'source parameter': parameter, 'comparison': 'reference' if group == 'time_cell' else 'Time cell',
+                       'p for median': stats_p, 'p for SD': stats_sd_p}
                 if measure == 'width' and group == 'time_cell':
                     row.update({'published value': .69, 'citation': 'published time-cell benchmark'})
                 if measure == 'ramp rate' and group in ['tic_down', 'tic_up']:
@@ -386,7 +391,7 @@ def wider_main():
     table = table[BASE_COLUMNS + [c for c in table if c not in BASE_COLUMNS]]
     table.to_csv(OUTPUT / 'summary_table_wider.csv', index=False)
     pd.DataFrame(pair_rows).to_csv(OUTPUT / 'summary_parameter_session_pairs_wider.csv', index=False)
-    figure_table = table[~((table.measure.isin(['width', 'ramp rate'])) & (table['bound subset'] == 'excluded'))]
+    figure_table = table[table['bound subset'].isna() | table['bound subset'].eq('included')]
     annotations = make_figure(figure_table, parameters, suffix='_wider', wider=True)
     wider_figures = ROOT / 'figures' / 'wider_evidence'
     wider_figures.mkdir(parents=True, exist_ok=True)
@@ -396,7 +401,7 @@ def wider_main():
     saved = pd.read_csv(OUTPUT / 'summary_table_wider.csv')
     for annotation in annotations:
         row = saved[(saved.group == annotation['group']) & (saved.measure == annotation['measure'])]
-        if annotation['measure'] in ['width', 'ramp rate']:
+        if annotation['measure'] in ['peak', 'width', 'ramp rate']:
             row = row[row['bound subset'] == 'included']
         assert len(row) == 1
         np.testing.assert_allclose(row.iloc[0]['p for median'], annotation['p'], rtol=0, atol=1e-14)
@@ -412,7 +417,7 @@ def wider_main():
     report = dict(seconds=time.perf_counter() - started, interpreter=sys.executable, old_files_unchanged=True,
                   figure_annotations=annotations, every_figure_p_matches_table=True,
                   width_and_tau='all cells in figure; bound cells marked with crosses; bound-excluded table rows only',
-                  peak='parameter-specific bound exclusion as in the original summary',
+                  peak='all cells shown with bound cells marked; statistics exclude bound cells',
                   session_tests='two-sided paired session medians and SDs; all sessions with finite group medians',
                   polynomials='only the authorised degrees one and four; no other models fitted',
                   literature='published width and tau references retained; no new exponent or slope estimated')

@@ -31,7 +31,7 @@ LABELS = {
 COLOURS = {
     'tic_down': '#228833',
     'tic_up': '#4477AA',
-    'time_cell': '#AA3377',
+    'time_cell': '#9467BD',
     'published': '#999999',
 }
 PUBLISHED = {
@@ -86,6 +86,9 @@ def fitted_values(parameters, group, quantity):
     if quantity == 'mu':
         parameter = 'gaussian_mu'
         bound = 'gaussian_mu_at_bound'
+    elif quantity == 'peak':
+        parameter = 'rise_mu' if group == 'tic_up' else 'decay_mu'
+        bound = f'{parameter}_at_bound'
     elif quantity == 'sigma':
         parameter = 'gaussian_sigma'
         bound = 'gaussian_sigma_at_bound'
@@ -190,9 +193,9 @@ def make_figure(parameters, alpha, alpha_bootstrap):
     axis.set_title('Fitted peak location')
     mu_rows = [
         (PUBLISHED['mu_down'], 0, None, COLOURS['published']),
-        ({'label': LABELS['tic_down']}, 1, fitted_values(parameters, 'tic_down', 'mu')[0], COLOURS['tic_down']),
+        ({'label': LABELS['tic_down']}, 1, fitted_values(parameters, 'tic_down', 'peak')[0], COLOURS['tic_down']),
         (PUBLISHED['mu_up'], 2, None, COLOURS['published']),
-        ({'label': LABELS['tic_up']}, 3, fitted_values(parameters, 'tic_up', 'mu')[0], COLOURS['tic_up']),
+        ({'label': LABELS['tic_up']}, 3, fitted_values(parameters, 'tic_up', 'peak')[0], COLOURS['tic_up']),
     ]
     for row, y, data, colour in mu_rows:
         if data is None:
@@ -229,15 +232,17 @@ def main():
     reference_tests = {
         ('tic_down', 'tau'): session_reference_test(parameters, 'tic_down', 'tau', PUBLISHED['tau_down']['median']),
         ('tic_up', 'tau'): session_reference_test(parameters, 'tic_up', 'tau', PUBLISHED['tau_up']['median']),
-        ('tic_down', 'mu'): session_reference_test(parameters, 'tic_down', 'mu', PUBLISHED['mu_down']['median']),
-        ('tic_up', 'mu'): session_reference_test(parameters, 'tic_up', 'mu', PUBLISHED['mu_up']['median']),
+        ('tic_down', 'peak'): session_reference_test(parameters, 'tic_down', 'peak', PUBLISHED['mu_down']['median']),
+        ('tic_up', 'peak'): session_reference_test(parameters, 'tic_up', 'peak', PUBLISHED['mu_up']['median']),
     }
 
     rows = [{
         'quantity': 'peak-time exponent',
         'group': 'Time cells',
         'source': 'gaussian_mu',
-        'n_cells': int(((time_peaks >= .35) & (time_peaks <= 7.)).sum()),
+        'n_cells': int(parameters.loc[parameters.group.eq('time_cell'), 'session'].count()),
+        'n_supported': int(((time_peaks >= .35) & (time_peaks <= 7.)).sum()),
+        'cell_set': 'time cells (n = 1177), overlap excluded',
         'n_sessions': int(parameters.loc[parameters.group.eq('time_cell'), 'session'].nunique()),
         'median': alpha[0],
         'q25': alpha[1],
@@ -250,8 +255,8 @@ def main():
     for group, quantity, key in [
         ('tic_down', 'tau', 'tau_down'),
         ('tic_up', 'tau', 'tau_up'),
-        ('tic_down', 'mu', 'mu_down'),
-        ('tic_up', 'mu', 'mu_up'),
+        ('tic_down', 'peak', 'mu_down'),
+        ('tic_up', 'peak', 'mu_up'),
     ]:
         values, parameter = fitted_values(parameters, group, quantity)
         reference = PUBLISHED[key]
@@ -260,7 +265,9 @@ def main():
             'quantity': 'time constant' if quantity == 'tau' else 'fitted peak location',
             'group': LABELS[group],
             'source': parameter,
-            'n_cells': len(values),
+            'n_cells': len(parameters.loc[parameters.group.eq(group)]),
+            'n_supported': len(values),
+            'cell_set': 'fitted cells with bound values excluded',
             'n_sessions': test['n_sessions'],
             'median': float(np.median(values)),
             'q25': float(np.percentile(values, 25)),
