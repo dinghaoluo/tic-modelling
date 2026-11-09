@@ -178,8 +178,8 @@ def make_figure(parameters, session_pairs, alpha, alpha_samples):
     for label, axis in zip('ABCD', axes.flat):
         axis.text(-.12, 1.05, label, transform=axis.transAxes, fontsize=12, fontweight='bold', va='top')
 
-    fig.savefig(FIGURES / 'paper_parameter_comparison.png', dpi=300)
-    fig.savefig(FIGURES / 'paper_parameter_comparison.pdf')
+    fig.savefig(FIGURES / 'published_parameter_comparison.png', dpi=300)
+    fig.savefig(FIGURES / 'published_parameter_comparison.pdf')
     plt.close(fig)
 
 
