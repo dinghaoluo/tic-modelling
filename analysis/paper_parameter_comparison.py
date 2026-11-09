@@ -130,7 +130,7 @@ def make_figure(parameters, session_pairs, alpha, alpha_samples):
     axis_a.set_title('Time-cell peak locations')
     data_box(axis_a, 1, alpha_samples, COLOURS['study'])
     summary_box(axis_a, 0, .92, .73, 1.11, COLOURS['published'])
-    axis_a.set(yticks=[0, 1], yticklabels=['Cao et al. 2022', 'This study'], xlabel='Peak-location exponent, alpha', xlim=(.55, 1.7))
+    axis_a.set(yticks=[0, 1], yticklabels=['Cao et al. 2022', 'Time cells'], xlabel='Peak-location exponent, alpha', xlim=(.55, 1.7))
     format_axis(axis_a)
 
     axis_b.set_title('Time constant (tau)')
@@ -165,7 +165,7 @@ def make_figure(parameters, session_pairs, alpha, alpha_samples):
     format_axis(axis_c)
 
     width = session_pairs[session_pairs.quantity.eq('field_width')]
-    axis_d.set_title('Field width within this study')
+    axis_d.set_title('Field width')
     for _, row in width.iterrows():
         axis_d.plot([0, 1], [row.time_median, row.tic_median], color='#BBBBBB', linewidth=.8, zorder=1)
     axis_d.scatter(np.zeros(len(width)), width.time_median, color=COLOURS['time'], s=24, zorder=2, label='Time cells')
@@ -229,7 +229,7 @@ def main():
     report = [
         '# parameter comparison with published benchmarks',
         '',
-        'Panels A-C place the wider-window distributions beside the published summary values. The blue boxes use the current cell-level values, except panel A where the box shows the bootstrap distribution of alpha estimates. The grey boxes show only the published median and IQR; no whiskers are drawn because the published raw values are unavailable.',
+        'Panels A-C place the fitted distributions beside the published summary values. The blue boxes use the cell-level values, except panel A where the box shows the bootstrap distribution of alpha estimates. The grey boxes show only the published median and IQR; no whiskers are drawn because the published raw values are unavailable.',
         '',
         'The peak-location exponent alpha describes how time-cell peaks are distributed across the interval. In the Cao et al. 2022 model, alpha = 1 corresponds to logarithmic compression. It is not a fit to the shape of an individual cell. The Cao et al. 2024 values are published medians and interquartile ranges, so these cross-paper panels are descriptive and do not carry a new p value.',
         '',
