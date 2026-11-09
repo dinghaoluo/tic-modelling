@@ -246,7 +246,7 @@ def make_figure(table, fits, suffix='', wider=False):
     for ax, panel, measure, title, ylabel in zip(axes[2:], ['C', 'D', 'E'],
             ['peak', 'width', 'ramp rate'], ['Peak time', 'Gaussian width', 'Time constant'],
             ['Peak time (s)', 'Gaussian width, σ (s)', 'Time constant, τ (s)']):
-        values = [parameter_values(fits, group, measure, include_bound=wider)[0][parameter_values(fits, group, measure)[1]].to_numpy()
+        values = [parameter_values(fits, group, measure, include_bound=wider and measure == 'peak')[0][parameter_values(fits, group, measure)[1]].to_numpy()
                   for group in GROUPS]
         boxes = ax.boxplot(values, labels=LABELS, showfliers=False, patch_artist=True,
                            medianprops={'color': 'black', 'linewidth': 1.5})
