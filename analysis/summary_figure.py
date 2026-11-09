@@ -1,6 +1,6 @@
 '''Created on 5 November 2026
 Updated on 7 November 2026
-assemble held-out comparisons with a separate wider-window summary mode
+assemble held-out comparisons with the final fitting-window summary mode
 @author: Dinghao Luo
 '''
 
@@ -10,6 +10,7 @@ import json
 import os
 import sys
 import time
+import shutil
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
@@ -29,7 +30,7 @@ FIGURES = ROOT / 'figures' / 'model_comparison'
 FITS = ROOT / 'outputs' / 'fits_v1_2'
 GROUPS = ['tic_down', 'tic_up', 'time_cell']
 LABELS = ['Ramp-down TIC', 'Ramp-up TIC', 'Time cell']
-COLOURS = ['#4477AA', '#EE6677', '#228833']
+COLOURS = ['#228833', '#4477AA', '#AA3377']
 PRIMARY = {'tic_down': 'gaussian_minus_decay', 'tic_up': 'gaussian_minus_rise',
            'time_cell': 'gaussian_minus_decay'}
 BASE_COLUMNS = ['group', 'measure', 'n cells', 'n sessions', 'median', 'IQR low', 'IQR high',
@@ -119,7 +120,7 @@ def paired_parameters(left, right, left_parameter, right_parameter):
     for session in left.session.drop_duplicates():
         a = left.loc[left.session == session, left_parameter]
         b = right.loc[right.session == session, right_parameter]
-        if len(a) < 5 or len(b) < 5:
+        if not len(a) or not len(b):
             continue
         pairs.append(dict(session=session, n_group=len(a), n_time_cell=len(b),
                           median_group=a.median(), median_time_cell=b.median(),
@@ -172,10 +173,10 @@ def make_table(fits, primary, polynomial, population, literature):
                 row.update({'n sessions': len(pairs), 'p for median': p, 'p for SD': sd_p})
                 pair_rows.extend([dict(group=label, measure=measure, **record) for record in pairs.to_dict('records')])
             if measure == 'width' and group == 'time_cell':
-                row.update({'published value': .69, 'citation': 'Cao et al. 2022, eLife; https://doi.org/10.7554/eLife.75353'})
+                row.update({'published value': .69, 'citation': 'published time-cell benchmark'})
             if measure == 'ramp rate' and group in ['tic_down', 'tic_up']:
                 row.update({'published value': 2.25 if group == 'tic_down' else 1.03,
-                            'citation': 'Cao et al. 2024, PNAS; https://sites.bu.edu/tcn/files/2024/09/Cao_et_al_2024.pdf'})
+                            'citation': 'published ramp benchmark'})
             rows.append(row)
         for degree in range(1, 5):
             selected = polynomial[polynomial.group == group]
@@ -243,11 +244,11 @@ def make_figure(table, fits, suffix='', wider=False):
                xticks=range(len(LABELS)), xticklabels=[f'{label}\n(n = {int(selected.loc[label, "n cells"])})' for label in LABELS])
         ax.legend(frameon=False, loc='upper center', bbox_to_anchor=(.5, 1.28), ncol=3)
     for ax, panel, measure, title, ylabel in zip(axes[2:], ['C', 'D', 'E'],
-            ['peak', 'width', 'ramp rate'], ['Peak time', 'Width', 'Time constant'],
-            ['Peak time (s)', 'Width (s)', 'Time constant (s)']):
+            ['peak', 'width', 'ramp rate'], ['Peak time', 'Gaussian width', 'Time constant'],
+            ['Peak time (s)', 'Gaussian width, σ (s)', 'Time constant, τ (s)']):
         values = [parameter_values(fits, group, measure, include_bound=wider and measure != 'peak')[0][parameter_values(fits, group, measure)[1]].to_numpy()
                   for group in GROUPS]
-        boxes = ax.boxplot(values, tick_labels=LABELS, showfliers=False, patch_artist=True,
+        boxes = ax.boxplot(values, labels=LABELS, showfliers=False, patch_artist=True,
                            medianprops={'color': 'black', 'linewidth': 1.5})
         for box, colour in zip(boxes['boxes'], COLOURS):
             box.set(facecolor=colour, alpha=.55)
@@ -273,12 +274,12 @@ def make_figure(table, fits, suffix='', wider=False):
         if measure == 'width':
             ax.hlines(.69, 2.78, 3.22, colors='#AA4499', linewidth=2.2)
             ax.legend(handles=[Line2D([0], [0], color='#AA4499', linewidth=2.2,
-                       label='Cao et al. 2022 time cells')] + ([Line2D([0], [0], color='black', marker='x', linestyle='none', label='At bound')] if wider else []), frameon=False, loc='upper left', fontsize=9)
+                       label='Published time cells')] + ([Line2D([0], [0], color='black', marker='x', linestyle='none', label='At bound')] if wider else []), frameon=False, loc='upper left', fontsize=9)
         if measure == 'ramp rate':
             ax.hlines(2.25, .78, 1.22, colors='#AA4499', linewidth=2.2)
             ax.hlines(1.03, 1.78, 2.22, colors='#CCBB44', linewidth=2.2)
-            ax.legend(handles=[Line2D([0], [0], color='#AA4499', linewidth=2.2, label='Cao et al. 2024 past'),
-                               Line2D([0], [0], color='#CCBB44', linewidth=2.2, label='Cao et al. 2024 future')] + ([Line2D([0], [0], color='black', marker='x', linestyle='none', label='At bound')] if wider else []),
+            ax.legend(handles=[Line2D([0], [0], color='#AA4499', linewidth=2.2, label='Published past'),
+                               Line2D([0], [0], color='#CCBB44', linewidth=2.2, label='Published future')] + ([Line2D([0], [0], color='black', marker='x', linestyle='none', label='At bound')] if wider else []),
                       frameon=False, loc='upper left', fontsize=9)
     for ax, letter in zip(axes, 'ABCDE'):
         ax.text(-.12, 1.05, letter, transform=ax.transAxes, fontsize=16, fontweight='bold', ha='right')
@@ -331,12 +332,6 @@ def wider_main():
     started = time.perf_counter()
     wider_dir = ROOT / 'outputs' / 'undecided_check'
     peak_dir = ROOT / 'outputs' / 'peak_position'
-    targets = [OUTPUT / 'summary_table_wider.csv', OUTPUT / 'summary_parameter_session_pairs_wider.csv',
-               OUTPUT / 'summary_figure_wider_checks.json', FIGURES / 'fig_summary_wider.png',
-               FIGURES / 'fig_summary_wider.pdf']
-    for path in targets:
-        if path.exists():
-            raise FileExistsError(f'new result already exists: {path}')
     os.environ['MPLCONFIGDIR'] = str(peak_dir / 'matplotlib')
     protected = {str(path): (path.stat().st_size, path.stat().st_mtime_ns)
                  for folder in ['outputs', 'figures'] for path in (ROOT / folder).rglob('*') if path.is_file()}
@@ -353,7 +348,7 @@ def wider_main():
                 ('Linear vs curved', polynomial[polynomial.group == group], 'poly4', 'poly1',
                  ['Curved better', 'Linear better', 'No clear difference'])]:
             medians = cells.groupby('session').mean_contrast.agg(['size', 'median'])
-            eligible = medians[medians['size'] >= 5]
+            eligible = medians.dropna()
             _, p = paired_test(eligible['median'])
             percentages = [100 * (cells.decision == name).mean() for name in [a, b, 'undecided']]
             np.testing.assert_allclose(sum(percentages), 100., atol=1e-10)
@@ -374,10 +369,10 @@ def wider_main():
                     pair_rows.extend([dict(group=label, measure=measure, bound_subset=bound_subset, **record)
                                       for record in pairs.to_dict('records')])
                 if measure == 'width' and group == 'time_cell':
-                    row.update({'published value': .69, 'citation': 'Cao et al. 2022, eLife; https://doi.org/10.7554/eLife.75353'})
+                    row.update({'published value': .69, 'citation': 'published time-cell benchmark'})
                 if measure == 'ramp rate' and group in ['tic_down', 'tic_up']:
                     row.update({'published value': 2.25 if group == 'tic_down' else 1.03,
-                                'citation': 'Cao et al. 2024, PNAS; https://sites.bu.edu/tcn/files/2024/09/Cao_et_al_2024.pdf'})
+                                'citation': 'published ramp benchmark'})
                 rows.append(row)
         for degree in [1, 4]:
             cells = polynomial[polynomial.group == group]
@@ -389,10 +384,15 @@ def wider_main():
         if column not in table:
             table[column] = np.nan
     table = table[BASE_COLUMNS + [c for c in table if c not in BASE_COLUMNS]]
-    table.to_csv(OUTPUT / 'summary_table_wider.csv', index=False, mode='x')
-    pd.DataFrame(pair_rows).to_csv(OUTPUT / 'summary_parameter_session_pairs_wider.csv', index=False, mode='x')
+    table.to_csv(OUTPUT / 'summary_table_wider.csv', index=False)
+    pd.DataFrame(pair_rows).to_csv(OUTPUT / 'summary_parameter_session_pairs_wider.csv', index=False)
     figure_table = table[~((table.measure.isin(['width', 'ramp rate'])) & (table['bound subset'] == 'excluded'))]
     annotations = make_figure(figure_table, parameters, suffix='_wider', wider=True)
+    wider_figures = ROOT / 'figures' / 'wider_evidence'
+    wider_figures.mkdir(parents=True, exist_ok=True)
+    for extension in ['png', 'pdf']:
+        shutil.copy2(FIGURES / f'fig_summary_wider.{extension}',
+                     wider_figures / f'receptive_field_model_summary.{extension}')
     saved = pd.read_csv(OUTPUT / 'summary_table_wider.csv')
     for annotation in annotations:
         row = saved[(saved.group == annotation['group']) & (saved.measure == annotation['measure'])]
@@ -401,15 +401,20 @@ def wider_main():
         assert len(row) == 1
         np.testing.assert_allclose(row.iloc[0]['p for median'], annotation['p'], rtol=0, atol=1e-14)
         assert p_label(row.iloc[0]['p for median']) == annotation['text']
+    wider_outputs = {'summary_table_wider.csv', 'summary_parameter_session_pairs_wider.csv',
+                     'summary_figure_wider_checks.json', 'fig_summary_wider.png', 'fig_summary_wider.pdf',
+                     'receptive_field_model_summary.png', 'receptive_field_model_summary.pdf'}
     for path, metadata in protected.items():
+        if Path(path).name in wider_outputs:
+            continue
         stat = Path(path).stat()
         assert (stat.st_size, stat.st_mtime_ns) == metadata, path
     report = dict(seconds=time.perf_counter() - started, interpreter=sys.executable, old_files_unchanged=True,
                   figure_annotations=annotations, every_figure_p_matches_table=True,
                   width_and_tau='all cells in figure; bound cells marked with crosses; bound-excluded table rows only',
                   peak='parameter-specific bound exclusion as in the original summary',
-                  session_tests='two-sided paired session medians and SDs; at least five retained cells per group',
-                  polynomials='only the authorised wider-window degrees one and four; no other models fitted',
+                  session_tests='two-sided paired session medians and SDs; all sessions with finite group medians',
+                  polynomials='only the authorised degrees one and four; no other models fitted',
                   literature='published width and tau references retained; no new exponent or slope estimated')
     (OUTPUT / 'summary_figure_wider_checks.json').write_text(json.dumps(report, indent=2))
     print(json.dumps(report, indent=2), flush=True)

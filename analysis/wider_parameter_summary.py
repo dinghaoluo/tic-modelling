@@ -1,6 +1,6 @@
-﻿'''
-2026-11-07
-summarise wider-window parameters and the aligned Cao comparison
+'''
+2026-11-09
+summarise fitted Gaussian and exponential parameters by cell group
 @author: Dinghao Luo
 '''
 
@@ -14,170 +14,153 @@ from scipy.stats import wilcoxon
 
 ROOT = Path(__file__).resolve().parents[1]
 WIDER = ROOT / 'outputs' / 'undecided_check'
-WIDTHS = ROOT / 'outputs' / 'width_summary' / 'widths.csv'
 OUTPUT = ROOT / 'outputs' / 'wider_evidence'
 FIGURES = ROOT / 'figures' / 'wider_evidence'
-CAO = {
-    'tic_down': {'label': 'past', 'mu': .01, 'mu_q25': 0., 'mu_q75': .10, 'tau': 2.25, 'tau_q25': .59, 'tau_q75': 4.},
-    'tic_up': {'label': 'future', 'mu': -.02, 'mu_q25': -.13, 'mu_q75': -.01, 'tau': 1.03, 'tau_q25': .26, 'tau_q75': 3.},
+
+GROUPS = ['tic_down', 'tic_up', 'time_cell']
+LABELS = {
+    'tic_down': 'Ramp-down TIC',
+    'tic_up': 'Ramp-up TIC',
+    'time_cell': 'Time cells',
+}
+COLOURS = {
+    'tic_down': '#228833',
+    'tic_up': '#4477AA',
+    'time_cell': '#AA3377',
 }
 
 
-def markdown(frame):
-    columns = list(frame.columns)
-    lines = ['| ' + ' | '.join(columns) + ' |', '| ' + ' | '.join(['---'] * len(columns)) + ' |']
-    lines.extend('| ' + ' | '.join(str(value) for value in row) + ' |'
-                 for row in frame.itertuples(index=False, name=None))
-    return '\n'.join(lines)
-
-
-def distribution(values):
-    values = pd.Series(values).dropna()
-    return dict(n=len(values), median=values.median(), q25=values.quantile(.25), q75=values.quantile(.75))
-
-
-def paired(values, name):
-    pairs = []
-    for session, part in values.groupby('session'):
-        tic = part.loc[part.group.eq('tic'), name].dropna()
-        time = part.loc[part.group.eq('time'), name].dropna()
-        if len(tic) and len(time):
-            pairs.append(dict(session=session, tic_median=tic.median(), time_median=time.median(),
-                              difference=tic.median() - time.median()))
-    pairs = pd.DataFrame(pairs)
-    result = wilcoxon(pairs.difference) if len(pairs) else None
-    return dict(quantity=name, n_sessions=len(pairs), pooled_tic=values.loc[values.group.eq('tic'), name].median(),
-                pooled_time=values.loc[values.group.eq('time'), name].median(),
-                session_difference_median=pairs.difference.median(),
-                sessions_tic_larger=int((pairs.difference > 0).sum()),
-                p_wilcoxon=result.pvalue if result is not None else np.nan), pairs
-
-
+#%% summaries
 def load_parameters():
-    parameters = pd.concat([pd.read_csv(path) for path in WIDER.glob('*_wider_parameters.csv')], ignore_index=True)
-    original = parameters.group.copy()
-    parameters['group'] = np.where(original.isin(['tic_down', 'tic_up']), 'tic',
-                                   np.where(original.eq('time_cell'), 'time', 'other'))
-    parameters['peak'] = parameters.gaussian_mu.where(~parameters.gaussian_mu_at_bound)
-    parameters['tau'] = np.where(original.eq('tic_up'), parameters.rise_tau, parameters.decay_tau)
-    tau_bound = np.where(original.eq('tic_up'), parameters.rise_tau_at_bound, parameters.decay_tau_at_bound).astype(bool)
-    parameters['tau_unbound'] = parameters.tau.where(~tau_bound)
-    return parameters
+    paths = sorted(WIDER.glob('*_wider_parameters.csv'))
+    return pd.concat([pd.read_csv(path) for path in paths], ignore_index=True)
 
 
-def load_widths():
-    widths = pd.read_csv(WIDTHS)
-    widths = widths[widths.subset.eq('all')].copy()
-    widths['group'] = np.where(widths.neuron_type.isin(['tic_down', 'tic_up']), 'tic',
-                               np.where(widths.neuron_type.eq('time_cell'), 'time', 'other'))
-    return widths.rename(columns={'width': 'field_width'})[['session', 'group', 'field_width']]
+def parameter_values(parameters, group, measure):
+    part = parameters[parameters.group.eq(group)].copy()
+    if measure == 'Gaussian μ':
+        parameter = 'gaussian_mu'
+    elif measure == 'Gaussian σ':
+        parameter = 'gaussian_sigma'
+    else:
+        parameter = 'rise_tau' if group == 'tic_up' else 'decay_tau'
+    bound = f'{parameter}_at_bound'
+    part = part.loc[~part[bound].astype(bool) & part[parameter].notna()]
+    return part, parameter
 
 
-def parameter_table(parameters, widths):
-    values = {
-        'field_width': widths,
-        'peak': parameters[['session', 'group', 'peak']],
-        'tau': parameters[['session', 'group', 'tau']],
-        'tau_unbound': parameters[['session', 'group', 'tau_unbound']],
-    }
-    rows, pairs = [], []
-    for name, frame in values.items():
-        result, pair = paired(frame, name)
-        rows.append(result)
-        pair['quantity'] = name
-        pairs.append(pair)
-    return pd.DataFrame(rows), pd.concat(pairs, ignore_index=True)
+def paired_test(parameters, group, measure):
+    left, parameter = parameter_values(parameters, group, measure)
+    right, right_parameter = parameter_values(parameters, 'time_cell', measure)
+    pairs = []
+    for session in sorted(set(left.session) & set(right.session)):
+        left_values = left.loc[left.session.eq(session), parameter]
+        right_values = right.loc[right.session.eq(session), right_parameter]
+        if len(left_values) and len(right_values):
+            pairs.append((left_values.median(), right_values.median()))
+    pairs = np.asarray(pairs, dtype=float)
+    differences = pairs[:, 0] - pairs[:, 1]
+    return len(pairs), float(wilcoxon(differences).pvalue), pairs
 
 
-def cao_table(parameters):
+def summary_table(parameters):
     rows = []
-    for group, shape in [('tic_down', 'decay'), ('tic_up', 'rise')]:
-        part = parameters[parameters.original_group.eq(group)] if 'original_group' in parameters else None
-        if part is None:
-            raise ValueError('original group column missing')
-        tau = part[f'{shape}_tau']
-        bound = part[f'{shape}_tau_at_bound'].astype(bool)
-        for subset, kept in [('all', tau), ('tau_bound_excluded', tau[~bound])]:
-            stats = distribution(kept)
-            rows.append(dict(quantity='tau', group=group, subset=subset, n=stats['n'], median=stats['median'],
-                             q25=stats['q25'], q75=stats['q75'], bound_pct=100 * bound.mean(),
-                             cao_median=CAO[group]['tau'], cao_q25=CAO[group]['tau_q25'], cao_q75=CAO[group]['tau_q75']))
-        mu = part.gaussian_mu[~part.gaussian_mu_at_bound]
-        stats = distribution(mu)
-        rows.append(dict(quantity='peak_mu', group=group, subset='gaussian_mu_bound_excluded', n=stats['n'],
-                         median=stats['median'], q25=stats['q25'], q75=stats['q75'], bound_pct=100 * part.gaussian_mu_at_bound.mean(),
-                         cao_median=CAO[group]['mu'], cao_q25=CAO[group]['mu_q25'], cao_q75=CAO[group]['mu_q75']))
+    for group in GROUPS:
+        for measure in ['Gaussian μ', 'Gaussian σ', 'Time constant τ']:
+            actual_measure = 'Time constant τ' if measure == 'Time constant τ' else measure
+            cells, parameter = parameter_values(parameters, group, actual_measure)
+            row = {
+                'group': LABELS[group],
+                'measure': measure,
+                'source_parameter': parameter,
+                'n_cells': len(cells),
+                'n_sessions': cells.session.nunique(),
+                'median': cells[parameter].median(),
+                'q25': cells[parameter].quantile(.25),
+                'q75': cells[parameter].quantile(.75),
+                'sd': cells[parameter].std(ddof=1),
+                'p_vs_time_cells': np.nan,
+            }
+            if group != 'time_cell':
+                n_sessions, p_value, _ = paired_test(parameters, group, actual_measure)
+                row['n_sessions'] = n_sessions
+                row['p_vs_time_cells'] = p_value
+            rows.append(row)
     return pd.DataFrame(rows)
 
 
-def model_summary():
-    contrasts = pd.concat([pd.read_csv(path) for path in WIDER.glob('*_wider_contrasts.csv')], ignore_index=True)
-    primary = contrasts[contrasts.primary]
-    rows = []
-    for group, part in primary.groupby('group'):
-        rows.append(dict(group=group, n_cells=len(part), n_sessions=part.session.nunique(),
-                         gaussian_better=100 * part.decision.eq('gaussian').mean(),
-                         exponential_better=100 * part.decision.isin(['decay', 'rise']).mean(),
-                         undecided=100 * part.decision.eq('undecided').mean(),
-                         median_contrast=part.mean_contrast.median()))
-    return pd.DataFrame(rows)
+#%% figure
+def p_label(value):
+    if not np.isfinite(value):
+        return 'p = n/a'
+    if value < .001:
+        return 'p < 0.001'
+    return f'p = {value:.3g}'
 
 
-def figure(parameters, widths, table):
-    plt.rcParams.update({'pdf.fonttype': 42, 'ps.fonttype': 42, 'svg.fonttype': 'none', 'pdf.use14corefonts': False})
-    fig, axes = plt.subplots(1, 3, figsize=(11, 4))
-    values = {'field_width': widths, 'peak': parameters[['session', 'group', 'peak']],
-              'tau_unbound': parameters[['session', 'group', 'tau_unbound']]}
-    labels = {'field_width': '0.5 SD width (s)', 'peak': 'Gaussian peak (s)',
-              'tau_unbound': 'matched tau (bound excluded, s)'}
-    colours = {'tic': '#4477AA', 'time': '#AA55AA'}
-    for axis, name in zip(axes, ['field_width', 'peak', 'tau_unbound']):
-        for group in ['tic', 'time']:
-            part = values[name].loc[values[name].group.eq(group), name].dropna()
-            axis.hist(part, bins=20, density=True, alpha=.6, color=colours[group],
-                      label='TICs' if group == 'tic' else 'time cells')
-        p = table.loc[table.quantity.eq(name), 'p_wilcoxon'].iloc[0]
-        axis.set(xlabel=labels[name], ylabel='density', title=f'p = {p:.3g}')
+def make_figure(parameters, table):
+    plt.rcParams.update({
+        'pdf.fonttype': 42,
+        'ps.fonttype': 42,
+        'svg.fonttype': 'none',
+        'pdf.use14corefonts': False,
+        'font.size': 9,
+        'axes.titlesize': 11,
+        'axes.labelsize': 9,
+    })
+    fig, axes = plt.subplots(1, 3, figsize=(12.4, 4.2), constrained_layout=True)
+    measures = [
+        ('Gaussian μ', 'μ (s)'),
+        ('Gaussian σ', 'σ (s)'),
+        ('Time constant τ', 'τ (s)'),
+    ]
+    for axis, (measure, xlabel) in zip(axes, measures):
+        pieces = []
+        for group in GROUPS:
+            cells, parameter = parameter_values(parameters, group, measure)
+            pieces.append(cells[parameter].to_numpy())
+        all_values = np.concatenate(pieces)
+        bins = np.linspace(np.nanmin(all_values), np.nanmax(all_values), 26)
+        for group, values in zip(GROUPS, pieces):
+            axis.hist(values, bins=bins, density=True, alpha=.48,
+                      color=COLOURS[group], label=LABELS[group])
+        axis.set_title(measure)
+        axis.set_xlabel(xlabel)
+        axis.set_ylabel('Density')
         axis.spines['top'].set_visible(False)
         axis.spines['right'].set_visible(False)
+        if measure != 'Gaussian μ':
+            axis.set_xlim(bins[0], bins[-1])
+        for index, group in enumerate(GROUPS[:2]):
+            p_value = table.loc[
+                (table.group == LABELS[group]) & (table.measure == measure),
+                'p_vs_time_cells',
+            ].iloc[0]
+            axis.text(.03, .96 - .09 * index,
+                      f'{LABELS[group]}: {p_label(p_value)}',
+                      transform=axis.transAxes, va='top', fontsize=8)
     axes[0].legend(frameon=False, fontsize=8)
-    fig.suptitle('TIC and time-cell parameter distributions')
-    fig.tight_layout()
+    for label, axis in zip('ABC', axes):
+        axis.text(-.10, 1.06, label, transform=axis.transAxes,
+                  fontsize=12, fontweight='bold', va='top')
     fig.savefig(FIGURES / 'parameter_distributions.png', dpi=300)
     fig.savefig(FIGURES / 'parameter_distributions.pdf')
     plt.close(fig)
 
 
+#%% run
 def main():
     OUTPUT.mkdir(parents=True, exist_ok=True)
     FIGURES.mkdir(parents=True, exist_ok=True)
     parameters = load_parameters()
-    parameters['original_group'] = np.where(parameters.group.eq('tic'), 'tic',
-                                            np.where(parameters.group.eq('time'), 'time', 'other'))
-    # recover the directional labels needed for the Cao table from the source files
-    source = pd.concat([pd.read_csv(path) for path in WIDER.glob('*_wider_parameters.csv')], ignore_index=True)
-    parameters['original_group'] = source.group.to_numpy()
-    widths = load_widths()
-    table, pairs = parameter_table(parameters, widths)
-    cao = cao_table(parameters)
-    models = model_summary()
+    table = summary_table(parameters)
     table.to_csv(OUTPUT / 'wider_parameter_summary.csv', index=False)
-    pairs.to_csv(OUTPUT / 'wider_parameter_session_pairs.csv', index=False)
-    cao.to_csv(OUTPUT / 'wider_cao_summary.csv', index=False)
-    models.to_csv(OUTPUT / 'wider_model_summary.csv', index=False)
-    report = ['# parameter distribution summary', '',
-              'All model parameters and model comparisons in this report come from the analysis interval used for the fitted traces. Width is the independent 0.5 SD threshold measurement. Peak and tau distributions report bound-excluded summaries where indicated; the all-fit tau rows retain the upper-bound values explicitly.', '',
-              '## pooled parameters', markdown(table), '',
-              '## Cao comparison', markdown(cao), '',
-              '## held-out model comparison', markdown(models), '',
-              'The held-out percentages are the wider-window Gaussian-versus-directional-exponential decisions. They retain undecided cells and should not be read as a claim that most cells have a decisive model identity.']
-    (OUTPUT / 'wider_parameter_summary.md').write_text('\n'.join(report), encoding='utf-8')
-    figure(parameters, widths, table)
-    print(table.to_string(index=False))
-    print(cao.to_string(index=False))
-    print(models.to_string(index=False))
+    (OUTPUT / 'wider_parameter_summary.md').write_text(
+        '# fitted parameter distributions\n\n' + table.to_string(index=False) + '\n',
+        encoding='utf-8',
+    )
+    make_figure(parameters, table)
 
 
 if __name__ == '__main__':
     main()
-

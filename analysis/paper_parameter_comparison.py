@@ -1,6 +1,6 @@
-''' 
-2026-11-08
-compare receptive-field parameters with published benchmarks
+'''
+2026-11-09
+compare fitted receptive-field parameters with published summaries
 @author: Dinghao Luo
 '''
 
@@ -22,14 +22,32 @@ WIDER = ROOT / 'outputs' / 'undecided_check'
 OUTPUT = ROOT / 'outputs' / 'wider_evidence'
 FIGURES = ROOT / 'figures' / 'wider_evidence'
 
-COLOURS = {'study': '#4477AA', 'published': '#555555', 'tic': '#4477AA', 'time': '#66AA55'}
+GROUPS = ['tic_down', 'tic_up', 'time_cell']
+LABELS = {
+    'tic_down': 'Ramp-down TIC',
+    'tic_up': 'Ramp-up TIC',
+    'time_cell': 'Time cells',
+}
+COLOURS = {
+    'tic_down': '#228833',
+    'tic_up': '#4477AA',
+    'time_cell': '#AA3377',
+    'published': '#999999',
+}
+PUBLISHED = {
+    'alpha': dict(label='Published time cells', median=.92, q25=.73, q75=1.11),
+    'tau_down': dict(label='Published past', median=2.25, q25=.59, q75=4.),
+    'tau_up': dict(label='Published future', median=1.03, q25=.26, q75=3.),
+    'mu_down': dict(label='Published past', median=.01, q25=0., q75=.10),
+    'mu_up': dict(label='Published future', median=-.02, q25=-.13, q75=-.01),
+}
 
 
 #%% data helpers
-def power_exponent(values):
+def power_exponent(values, upper=7.):
     values = np.asarray(values, dtype=float)
-    values = values[(values >= .35) & (values <= 7.) & np.isfinite(values)]
-    log_ratio = np.log(7. / .35)
+    values = values[(values >= .35) & (values <= upper) & np.isfinite(values)]
+    log_ratio = np.log(upper / .35)
 
     def nll(alpha):
         beta = 1 - alpha
@@ -47,16 +65,15 @@ def power_exponent(values):
     return float(result.x)
 
 
-def bootstrap_alpha(values, seed=20261107):
+def bootstrap_alpha(values, upper=7., seed=20261107):
     values = np.asarray(values, dtype=float)
-    estimates = bootstrap_alpha_samples(values, seed)
-    return power_exponent(values), *np.percentile(estimates, [2.5, 97.5])
-
-
-def bootstrap_alpha_samples(values, seed=20261107):
-    values = np.asarray(values, dtype=float)
+    values = values[(values >= .35) & (values <= upper) & np.isfinite(values)]
     rng = np.random.default_rng(seed)
-    return np.array([power_exponent(values[rng.integers(0, len(values), len(values))]) for _ in range(1000)])
+    estimates = np.array([
+        power_exponent(values[rng.integers(0, len(values), len(values))], upper)
+        for _ in range(1000)
+    ])
+    return power_exponent(values, upper), *np.percentile(estimates, [2.5, 97.5])
 
 
 def load_parameters():
@@ -64,29 +81,39 @@ def load_parameters():
     return pd.concat([pd.read_csv(path) for path in paths], ignore_index=True)
 
 
-def values(frame, column, group, unbound=True):
-    part = frame[frame.group.eq(group)].copy()
-    if unbound:
-        part = part[~part[f'{column}_at_bound']]
-    return part[column].dropna().to_numpy()
+def fitted_values(parameters, group, quantity):
+    part = parameters[parameters.group.eq(group)].copy()
+    if quantity == 'mu':
+        parameter = 'gaussian_mu'
+        bound = 'gaussian_mu_at_bound'
+    elif quantity == 'sigma':
+        parameter = 'gaussian_sigma'
+        bound = 'gaussian_sigma_at_bound'
+    else:
+        parameter = 'rise_tau' if group == 'tic_up' else 'decay_tau'
+        bound = f'{parameter}_at_bound'
+    return part.loc[~part[bound].astype(bool), parameter].dropna().to_numpy(), parameter
 
 
-def session_reference_test(frame, column, group, reference):
-    part = frame[frame.group.eq(group)].copy()
-    part = part[~part[f'{column}_at_bound']]
-    session_values = part.groupby('session')[column].median().dropna()
+def session_reference_test(parameters, group, quantity, reference):
+    part = parameters[parameters.group.eq(group)].copy()
+    values, parameter = fitted_values(part, group, quantity)
+    part = part.loc[~part[f'{parameter}_at_bound'].astype(bool)]
+    session_values = part.groupby('session')[parameter].median().dropna()
+    result = wilcoxon(session_values.to_numpy() - reference)
     return dict(
         n_sessions=len(session_values),
         session_median=float(session_values.median()),
-        p=float(wilcoxon(session_values.to_numpy() - reference).pvalue),
+        p=float(result.pvalue),
     )
 
 
-def summary_box(axis, y, median, low, high, colour):
+def summary_box(axis, y, median, q25, q75, colour):
     height = .36
-    axis.add_patch(Rectangle((low, y - height / 2), high - low, height,
-                             facecolor=colour, edgecolor=colour, alpha=.65))
-    axis.plot([median, median], [y - height / 2, y + height / 2], color='black', linewidth=1.3)
+    axis.add_patch(Rectangle((q25, y - height / 2), q75 - q25, height,
+                             facecolor=colour, edgecolor=colour, alpha=.60))
+    axis.plot([median, median], [y - height / 2, y + height / 2],
+              color='black', linewidth=1.3)
 
 
 def data_box(axis, y, data, colour):
@@ -98,7 +125,7 @@ def data_box(axis, y, data, colour):
         patch_artist=True,
         showfliers=False,
         whis=1.5,
-        boxprops={'facecolor': colour, 'edgecolor': colour, 'alpha': .65},
+        boxprops={'facecolor': colour, 'edgecolor': colour, 'alpha': .60},
         whiskerprops={'color': colour, 'linewidth': 1.2},
         capprops={'color': colour, 'linewidth': 1.2},
         medianprops={'color': 'black', 'linewidth': 1.3},
@@ -112,7 +139,7 @@ def format_axis(axis):
 
 
 #%% figure
-def make_figure(parameters, session_pairs, alpha, alpha_samples):
+def make_figure(parameters, alpha, alpha_bootstrap):
     plt.rcParams.update({
         'pdf.fonttype': 42,
         'ps.fonttype': 42,
@@ -123,60 +150,67 @@ def make_figure(parameters, session_pairs, alpha, alpha_samples):
         'axes.labelsize': 9,
     })
 
-    fig, axes = plt.subplots(2, 2, figsize=(10, 8.2), constrained_layout=True)
-    axis_a, axis_b, axis_c, axis_d = axes.flat
+    fig, axes = plt.subplots(1, 3, figsize=(13.2, 4.8), constrained_layout=True)
 
-    # α is the power-law exponent of the time-cell peak-location distribution
-    axis_a.set_title('Time-cell peak distribution')
-    data_box(axis_a, 1, alpha_samples, COLOURS['study'])
-    summary_box(axis_a, 0, .92, .73, 1.11, COLOURS['published'])
-    axis_a.set(yticks=[0, 1], yticklabels=['Cao et al. 2022', 'Time cells'], xlabel='Exponent of peak-time distribution, alpha', xlim=(.55, 1.7))
-    format_axis(axis_a)
+    axis = axes[0]
+    axis.set_title('Peak-time exponent')
+    data_box(axis, 1, alpha_bootstrap, COLOURS['time_cell'])
+    ref = PUBLISHED['alpha']
+    summary_box(axis, 0, ref['median'], ref['q25'], ref['q75'], COLOURS['published'])
+    axis.set(
+        yticks=[0, 1],
+        yticklabels=[ref['label'], 'Time cells'],
+        xlabel='Exponent, α',
+        xlim=(.55, 1.7),
+    )
+    format_axis(axis)
 
-    axis_b.set_title('Time constant (tau)')
-    rows_b = [
-        ('Cao et al. 2024, past', 0, None, 2.25, .59, 4., COLOURS['published']),
-        ('Ramp-down TIC', 1, values(parameters, 'decay_tau', 'tic_down'), None, None, None, COLOURS['study']),
-        ('Cao et al. 2024, future', 2, None, 1.03, .26, 3., COLOURS['published']),
-        ('Ramp-up TIC', 3, values(parameters, 'rise_tau', 'tic_up'), None, None, None, COLOURS['study']),
+    axis = axes[1]
+    axis.set_title('Time constant')
+    tau_rows = [
+        (PUBLISHED['tau_down'], 0, None, COLOURS['published']),
+        ({'label': LABELS['tic_down']}, 1, fitted_values(parameters, 'tic_down', 'tau')[0], COLOURS['tic_down']),
+        (PUBLISHED['tau_up'], 2, None, COLOURS['published']),
+        ({'label': LABELS['tic_up']}, 3, fitted_values(parameters, 'tic_up', 'tau')[0], COLOURS['tic_up']),
     ]
-    for label, y, data, median, low, high, colour in rows_b:
+    for row, y, data, colour in tau_rows:
         if data is None:
-            summary_box(axis_b, y, median, low, high, colour)
+            summary_box(axis, y, row['median'], row['q25'], row['q75'], colour)
         else:
-            data_box(axis_b, y, data, colour)
-    axis_b.set(yticks=[0, 1, 2, 3], yticklabels=[row[0] for row in rows_b], xlabel='τ (s)', xlim=(0, 10.5))
-    format_axis(axis_b)
+            data_box(axis, y, data, colour)
+    axis.set(
+        yticks=[0, 1, 2, 3],
+        yticklabels=[row[0]['label'] for row in tau_rows],
+        xlabel='τ (s)',
+        xlim=(0, 10.5),
+    )
+    format_axis(axis)
 
-    axis_c.set_title('Peak location relative to interval boundary')
-    rows_c = [
-        ('Cao et al. 2024, past', 0, None, .01, 0., .10, COLOURS['published']),
-        ('Ramp-down TIC', 1, values(parameters, 'decay_mu', 'tic_down'), None, None, None, COLOURS['study']),
-        ('Cao et al. 2024, future', 2, None, -.02, -.13, -.01, COLOURS['published']),
-        ('Ramp-up TIC', 3, values(parameters, 'rise_mu', 'tic_up'), None, None, None, COLOURS['study']),
+    axis = axes[2]
+    axis.set_title('Fitted peak location')
+    mu_rows = [
+        (PUBLISHED['mu_down'], 0, None, COLOURS['published']),
+        ({'label': LABELS['tic_down']}, 1, fitted_values(parameters, 'tic_down', 'mu')[0], COLOURS['tic_down']),
+        (PUBLISHED['mu_up'], 2, None, COLOURS['published']),
+        ({'label': LABELS['tic_up']}, 3, fitted_values(parameters, 'tic_up', 'mu')[0], COLOURS['tic_up']),
     ]
-    for label, y, data, median, low, high, colour in rows_c:
+    for row, y, data, colour in mu_rows:
         if data is None:
-            summary_box(axis_c, y, median, low, high, colour)
+            summary_box(axis, y, row['median'], row['q25'], row['q75'], colour)
         else:
-            data_box(axis_c, y, data, colour)
-    axis_c.axvline(0, color='#999999', linewidth=.8)
-    axis_c.set(yticks=[0, 1, 2, 3], yticklabels=[row[0] for row in rows_c], xlabel='Peak location (s)', xlim=(-1.05, 1.05))
-    format_axis(axis_c)
+            data_box(axis, y, data, colour)
+    axis.axvline(0, color='#999999', linewidth=.8)
+    axis.set(
+        yticks=[0, 1, 2, 3],
+        yticklabels=[row[0]['label'] for row in mu_rows],
+        xlabel='μ (s)',
+        xlim=(-1.05, 1.05),
+    )
+    format_axis(axis)
 
-    width = session_pairs[session_pairs.quantity.eq('field_width')]
-    axis_d.set_title('Field width')
-    for _, row in width.iterrows():
-        axis_d.plot([0, 1], [row.time_median, row.tic_median], color='#BBBBBB', linewidth=.8, zorder=1)
-    axis_d.scatter(np.zeros(len(width)), width.time_median, color=COLOURS['time'], s=24, zorder=2, label='Time cells')
-    axis_d.scatter(np.ones(len(width)), width.tic_median, color=COLOURS['tic'], s=24, zorder=2, label='TICs')
-    axis_d.set(xticks=[0, 1], xticklabels=['Time cells', 'TICs'], ylabel='0.5 SD threshold width (s)', xlim=(-.35, 1.35))
-    axis_d.text(.03, .93, 'paired sessions, p = 6.1 × 10⁻⁵', transform=axis_d.transAxes, va='top', fontsize=8)
-    axis_d.legend(frameon=False, loc='lower right', fontsize=8)
-    format_axis(axis_d)
-
-    for label, axis in zip('ABCD', axes.flat):
-        axis.text(-.12, 1.05, label, transform=axis.transAxes, fontsize=12, fontweight='bold', va='top')
+    for label, axis in zip('ABC', axes):
+        axis.text(-.12, 1.05, label, transform=axis.transAxes,
+                  fontsize=12, fontweight='bold', va='top')
 
     fig.savefig(FIGURES / 'published_parameter_comparison.png', dpi=300)
     fig.savefig(FIGURES / 'published_parameter_comparison.pdf')
@@ -188,63 +222,66 @@ def main():
     OUTPUT.mkdir(parents=True, exist_ok=True)
     FIGURES.mkdir(parents=True, exist_ok=True)
     parameters = load_parameters()
-    session_pairs = pd.read_csv(OUTPUT / 'wider_parameter_session_pairs.csv')
-    time_peaks = parameters.loc[
-        parameters.group.eq('time_cell') & ~parameters.gaussian_mu_at_bound,
-        'gaussian_mu',
-    ].to_numpy()
+
+    time_peaks = parameters.loc[parameters.group.eq('time_cell'), 'gaussian_mu'].dropna().to_numpy()
     alpha = bootstrap_alpha(time_peaks)
-    alpha_samples = bootstrap_alpha_samples(time_peaks)
 
     reference_tests = {
-        'ramp-down time constant (s)': session_reference_test(parameters, 'decay_tau', 'tic_down', 2.25),
-        'ramp-up time constant (s)': session_reference_test(parameters, 'rise_tau', 'tic_up', 1.03),
-        'ramp-down peak location (s)': session_reference_test(parameters, 'decay_mu', 'tic_down', .01),
-        'ramp-up peak location (s)': session_reference_test(parameters, 'rise_mu', 'tic_up', -.02),
+        ('tic_down', 'tau'): session_reference_test(parameters, 'tic_down', 'tau', PUBLISHED['tau_down']['median']),
+        ('tic_up', 'tau'): session_reference_test(parameters, 'tic_up', 'tau', PUBLISHED['tau_up']['median']),
+        ('tic_down', 'mu'): session_reference_test(parameters, 'tic_down', 'mu', PUBLISHED['mu_down']['median']),
+        ('tic_up', 'mu'): session_reference_test(parameters, 'tic_up', 'mu', PUBLISHED['mu_up']['median']),
     }
 
-    width = session_pairs[session_pairs.quantity.eq('field_width')]
-    width_p = wilcoxon(width.tic_median, width.time_median).pvalue
-    tau_p = wilcoxon(
-        session_pairs.loc[session_pairs.quantity.eq('tau_unbound'), 'tic_median'],
-        session_pairs.loc[session_pairs.quantity.eq('tau_unbound'), 'time_median'],
-    ).pvalue
-    peak_p = wilcoxon(
-        session_pairs.loc[session_pairs.quantity.eq('peak'), 'tic_median'],
-        session_pairs.loc[session_pairs.quantity.eq('peak'), 'time_median'],
-    ).pvalue
-
-    table = pd.DataFrame([
-        {'quantity': 'time-cell peak-location exponent (alpha)', 'this_study': alpha[0], 'this_study_low': alpha[1], 'this_study_high': alpha[2], 'published': .92, 'published_low': .73, 'published_high': 1.11, 'comparison': 'descriptive; methods differ'},
-        {'quantity': 'ramp-down time constant (s)', 'this_study': 2.9556, 'this_study_low': 1.7026, 'this_study_high': 5.0496, 'published': 2.25, 'published_low': .59, 'published_high': 4., 'comparison': 'session-level benchmark test; calcium vs spikes'},
-        {'quantity': 'ramp-up time constant (s)', 'this_study': 2.5754, 'this_study_low': 1.2492, 'this_study_high': 4.4938, 'published': 1.03, 'published_low': .26, 'published_high': 3., 'comparison': 'session-level benchmark test; calcium vs spikes'},
-        {'quantity': 'ramp-down peak location (s)', 'this_study': .3334, 'this_study_low': .1282, 'this_study_high': .7014, 'published': .01, 'published_low': 0., 'published_high': .10, 'comparison': 'session-level benchmark test; boundary definitions aligned'},
-        {'quantity': 'ramp-up peak location (s)', 'this_study': .0126, 'this_study_low': -.0657, 'this_study_high': .1299, 'published': -.02, 'published_low': -.13, 'published_high': -.01, 'comparison': 'session-level benchmark test; boundary definitions aligned'},
-    ])
-    table['one_sample_n_sessions'] = table.quantity.map(lambda quantity: reference_tests.get(quantity, {}).get('n_sessions', np.nan))
-    table['one_sample_session_median'] = table.quantity.map(lambda quantity: reference_tests.get(quantity, {}).get('session_median', np.nan))
-    table['one_sample_p'] = table.quantity.map(lambda quantity: reference_tests.get(quantity, {}).get('p', np.nan))
+    rows = [{
+        'quantity': 'peak-time exponent',
+        'group': 'Time cells',
+        'source': 'gaussian_mu',
+        'n_cells': int(((time_peaks >= .35) & (time_peaks <= 7.)).sum()),
+        'n_sessions': int(parameters.loc[parameters.group.eq('time_cell'), 'session'].nunique()),
+        'median': alpha[0],
+        'q25': alpha[1],
+        'q75': alpha[2],
+        'published_median': PUBLISHED['alpha']['median'],
+        'published_q25': PUBLISHED['alpha']['q25'],
+        'published_q75': PUBLISHED['alpha']['q75'],
+        'one_sample_p': np.nan,
+    }]
+    for group, quantity, key in [
+        ('tic_down', 'tau', 'tau_down'),
+        ('tic_up', 'tau', 'tau_up'),
+        ('tic_down', 'mu', 'mu_down'),
+        ('tic_up', 'mu', 'mu_up'),
+    ]:
+        values, parameter = fitted_values(parameters, group, quantity)
+        reference = PUBLISHED[key]
+        test = reference_tests[(group, quantity)]
+        rows.append({
+            'quantity': 'time constant' if quantity == 'tau' else 'fitted peak location',
+            'group': LABELS[group],
+            'source': parameter,
+            'n_cells': len(values),
+            'n_sessions': test['n_sessions'],
+            'median': float(np.median(values)),
+            'q25': float(np.percentile(values, 25)),
+            'q75': float(np.percentile(values, 75)),
+            'published_median': reference['median'],
+            'published_q25': reference['q25'],
+            'published_q75': reference['q75'],
+            'one_sample_p': test['p'],
+        })
+    table = pd.DataFrame(rows)
     table.to_csv(OUTPUT / 'paper_parameter_comparison.csv', index=False)
 
     report = [
-        '# parameter comparison with published benchmarks',
+        '# fitted parameter comparison',
         '',
-        'Panels A-C place the fitted distributions beside the published summary values. The blue boxes use the cell-level values, except panel A where the box shows the bootstrap distribution of alpha estimates. The grey boxes show only the published median and IQR; no whiskers are drawn because the published raw values are unavailable.',
-        '',
-        'The peak-location exponent alpha describes how time-cell peaks are distributed across the interval. In the Cao et al. 2022 model, alpha = 1 corresponds to logarithmic compression. It is not a fit to the shape of an individual cell. The Cao et al. 2024 values are published medians and interquartile ranges, so these cross-paper panels are descriptive and do not carry a new p value.',
-        '',
-        'For the tau and peak comparisons, the table also reports one-sample Wilcoxon tests on the 15 session medians against the published Cao median. These tests treat the published median as fixed and do not include uncertainty in the published estimate; they are benchmark tests rather than a joint cross-study model.',
-        '',
-        'Panel D shows the paired-session field-width comparison using the 0.5 SD threshold measure. The paired-session Wilcoxon tests were:',
-        '',
-        f'- field width: p = {width_p:.3g}',
-        f'- matched tau, bound-excluded: p = {tau_p:.3g}',
-        f'- Gaussian peak time: p = {peak_p:.3g}',
+        'The data summaries use the fitted Gaussian and directional-exponential parameters. Published rows contain the reported median and interquartile range.',
         '',
         table.to_string(index=False),
     ]
     (OUTPUT / 'paper_parameter_comparison.md').write_text('\n'.join(report) + '\n', encoding='utf-8')
-    make_figure(parameters, session_pairs, alpha, alpha_samples)
+    make_figure(parameters, alpha, bootstrap_alpha(time_peaks)[1:])
 
 
 if __name__ == '__main__':
