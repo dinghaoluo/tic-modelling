@@ -71,6 +71,17 @@ def values(frame, column, group, unbound=True):
     return part[column].dropna().to_numpy()
 
 
+def session_reference_test(frame, column, group, reference):
+    part = frame[frame.group.eq(group)].copy()
+    part = part[~part[f'{column}_at_bound']]
+    session_values = part.groupby('session')[column].median().dropna()
+    return dict(
+        n_sessions=len(session_values),
+        session_median=float(session_values.median()),
+        p=float(wilcoxon(session_values.to_numpy() - reference).pvalue),
+    )
+
+
 def summary_box(axis, y, median, low, high, colour):
     height = .36
     axis.add_patch(Rectangle((low, y - height / 2), high - low, height,
@@ -185,6 +196,13 @@ def main():
     alpha = bootstrap_alpha(time_peaks)
     alpha_samples = bootstrap_alpha_samples(time_peaks)
 
+    reference_tests = {
+        'ramp-down time constant (s)': session_reference_test(parameters, 'decay_tau', 'tic_down', 2.25),
+        'ramp-up time constant (s)': session_reference_test(parameters, 'rise_tau', 'tic_up', 1.03),
+        'ramp-down peak location (s)': session_reference_test(parameters, 'decay_mu', 'tic_down', .01),
+        'ramp-up peak location (s)': session_reference_test(parameters, 'rise_mu', 'tic_up', -.02),
+    }
+
     width = session_pairs[session_pairs.quantity.eq('field_width')]
     width_p = wilcoxon(width.tic_median, width.time_median).pvalue
     tau_p = wilcoxon(
@@ -198,11 +216,14 @@ def main():
 
     table = pd.DataFrame([
         {'quantity': 'time-cell peak-location exponent (alpha)', 'this_study': alpha[0], 'this_study_low': alpha[1], 'this_study_high': alpha[2], 'published': .92, 'published_low': .73, 'published_high': 1.11, 'comparison': 'descriptive; methods differ'},
-        {'quantity': 'ramp-down time constant (s)', 'this_study': 2.9556, 'this_study_low': 1.7026, 'this_study_high': 5.0496, 'published': 2.25, 'published_low': .59, 'published_high': 4., 'comparison': 'descriptive; calcium vs spikes'},
-        {'quantity': 'ramp-up time constant (s)', 'this_study': 2.5754, 'this_study_low': 1.2492, 'this_study_high': 4.4938, 'published': 1.03, 'published_low': .26, 'published_high': 3., 'comparison': 'descriptive; calcium vs spikes'},
-        {'quantity': 'ramp-down peak location (s)', 'this_study': .3334, 'this_study_low': .1282, 'this_study_high': .7014, 'published': .01, 'published_low': 0., 'published_high': .10, 'comparison': 'descriptive; boundary definitions aligned'},
-        {'quantity': 'ramp-up peak location (s)', 'this_study': .0126, 'this_study_low': -.0657, 'this_study_high': .1299, 'published': -.02, 'published_low': -.13, 'published_high': -.01, 'comparison': 'descriptive; boundary definitions aligned'},
+        {'quantity': 'ramp-down time constant (s)', 'this_study': 2.9556, 'this_study_low': 1.7026, 'this_study_high': 5.0496, 'published': 2.25, 'published_low': .59, 'published_high': 4., 'comparison': 'session-level benchmark test; calcium vs spikes'},
+        {'quantity': 'ramp-up time constant (s)', 'this_study': 2.5754, 'this_study_low': 1.2492, 'this_study_high': 4.4938, 'published': 1.03, 'published_low': .26, 'published_high': 3., 'comparison': 'session-level benchmark test; calcium vs spikes'},
+        {'quantity': 'ramp-down peak location (s)', 'this_study': .3334, 'this_study_low': .1282, 'this_study_high': .7014, 'published': .01, 'published_low': 0., 'published_high': .10, 'comparison': 'session-level benchmark test; boundary definitions aligned'},
+        {'quantity': 'ramp-up peak location (s)', 'this_study': .0126, 'this_study_low': -.0657, 'this_study_high': .1299, 'published': -.02, 'published_low': -.13, 'published_high': -.01, 'comparison': 'session-level benchmark test; boundary definitions aligned'},
     ])
+    table['one_sample_n_sessions'] = table.quantity.map(lambda quantity: reference_tests.get(quantity, {}).get('n_sessions', np.nan))
+    table['one_sample_session_median'] = table.quantity.map(lambda quantity: reference_tests.get(quantity, {}).get('session_median', np.nan))
+    table['one_sample_p'] = table.quantity.map(lambda quantity: reference_tests.get(quantity, {}).get('p', np.nan))
     table.to_csv(OUTPUT / 'paper_parameter_comparison.csv', index=False)
 
     report = [
@@ -211,6 +232,8 @@ def main():
         'Panels A-C place the wider-window distributions beside the published summary values. The blue boxes use the current cell-level values, except panel A where the box shows the bootstrap distribution of alpha estimates. The grey boxes show only the published median and IQR; no whiskers are drawn because the published raw values are unavailable.',
         '',
         'The peak-location exponent alpha describes how time-cell peaks are distributed across the interval. In the Cao et al. 2022 model, alpha = 1 corresponds to logarithmic compression. It is not a fit to the shape of an individual cell. The Cao et al. 2024 values are published medians and interquartile ranges, so these cross-paper panels are descriptive and do not carry a new p value.',
+        '',
+        'For the tau and peak comparisons, the table also reports one-sample Wilcoxon tests on the 15 session medians against the published Cao median. These tests treat the published median as fixed and do not include uncertainty in the published estimate; they are benchmark tests rather than a joint cross-study model.',
         '',
         'Panel D shows the paired-session field-width comparison using the 0.5 SD threshold measure. The paired-session Wilcoxon tests were:',
         '',
