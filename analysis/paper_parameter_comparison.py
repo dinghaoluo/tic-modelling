@@ -11,6 +11,7 @@ import sys
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from matplotlib.patches import Rectangle
 from scipy.optimize import minimize_scalar
 from scipy.stats import wilcoxon
 
@@ -48,9 +49,14 @@ def power_exponent(values):
 
 def bootstrap_alpha(values, seed=20261107):
     values = np.asarray(values, dtype=float)
-    rng = np.random.default_rng(seed)
-    estimates = [power_exponent(values[rng.integers(0, len(values), len(values))]) for _ in range(1000)]
+    estimates = bootstrap_alpha_samples(values, seed)
     return power_exponent(values), *np.percentile(estimates, [2.5, 97.5])
+
+
+def bootstrap_alpha_samples(values, seed=20261107):
+    values = np.asarray(values, dtype=float)
+    rng = np.random.default_rng(seed)
+    return np.array([power_exponent(values[rng.integers(0, len(values), len(values))]) for _ in range(1000)])
 
 
 def load_parameters():
@@ -58,21 +64,34 @@ def load_parameters():
     return pd.concat([pd.read_csv(path) for path in paths], ignore_index=True)
 
 
+def values(frame, column, group, unbound=True):
+    part = frame[frame.group.eq(group)].copy()
+    if unbound:
+        part = part[~part[f'{column}_at_bound']]
+    return part[column].dropna().to_numpy()
+
+
 def summary_box(axis, y, median, low, high, colour):
-    stats = [{'med': median, 'q1': low, 'q3': high, 'whislo': low, 'whishi': high, 'fliers': []}]
-    artists = axis.bxp(
-        stats,
+    height = .36
+    axis.add_patch(Rectangle((low, y - height / 2), high - low, height,
+                             facecolor=colour, edgecolor=colour, alpha=.65))
+    axis.plot([median, median], [y - height / 2, y + height / 2], color='black', linewidth=1.3)
+
+
+def data_box(axis, y, data, colour):
+    axis.boxplot(
+        [np.asarray(data, dtype=float)],
         positions=[y],
         vert=False,
         widths=.36,
         patch_artist=True,
         showfliers=False,
+        whis=1.5,
         boxprops={'facecolor': colour, 'edgecolor': colour, 'alpha': .65},
         whiskerprops={'color': colour, 'linewidth': 1.2},
         capprops={'color': colour, 'linewidth': 1.2},
         medianprops={'color': 'black', 'linewidth': 1.3},
     )
-    return artists
 
 
 def format_axis(axis):
@@ -82,7 +101,7 @@ def format_axis(axis):
 
 
 #%% figure
-def make_figure(parameters, session_pairs, alpha):
+def make_figure(parameters, session_pairs, alpha, alpha_samples):
     plt.rcParams.update({
         'pdf.fonttype': 42,
         'ps.fonttype': 42,
@@ -98,34 +117,40 @@ def make_figure(parameters, session_pairs, alpha):
 
     # α is the power-law exponent of the time-cell peak-location distribution
     axis_a.set_title('Time-cell peak locations')
-    summary_box(axis_a, 1, alpha[0], alpha[1], alpha[2], COLOURS['study'])
+    data_box(axis_a, 1, alpha_samples, COLOURS['study'])
     summary_box(axis_a, 0, .92, .73, 1.11, COLOURS['published'])
     axis_a.set(yticks=[0, 1], yticklabels=['Cao et al. 2022', 'This study'], xlabel='Peak-location exponent, alpha', xlim=(.55, 1.7))
     format_axis(axis_a)
 
     axis_b.set_title('Time constant (tau)')
     rows_b = [
-        ('Cao et al. 2024, past', 0, 2.25, .59, 4., COLOURS['published'], 's'),
-        ('Ramp-down TIC', 1, 2.9556, 1.7026, 5.0496, COLOURS['study'], 'o'),
-        ('Cao et al. 2024, future', 2, 1.03, .26, 3., COLOURS['published'], 's'),
-        ('Ramp-up TIC', 3, 2.5754, 1.2492, 4.4938, COLOURS['study'], 'o'),
+        ('Cao et al. 2024, past', 0, None, 2.25, .59, 4., COLOURS['published']),
+        ('Ramp-down TIC', 1, values(parameters, 'decay_tau', 'tic_down'), None, None, None, COLOURS['study']),
+        ('Cao et al. 2024, future', 2, None, 1.03, .26, 3., COLOURS['published']),
+        ('Ramp-up TIC', 3, values(parameters, 'rise_tau', 'tic_up'), None, None, None, COLOURS['study']),
     ]
-    for label, y, median, low, high, colour, marker in rows_b:
-        summary_box(axis_b, y, median, low, high, colour)
+    for label, y, data, median, low, high, colour in rows_b:
+        if data is None:
+            summary_box(axis_b, y, median, low, high, colour)
+        else:
+            data_box(axis_b, y, data, colour)
     axis_b.set(yticks=[0, 1, 2, 3], yticklabels=[row[0] for row in rows_b], xlabel='τ (s)', xlim=(0, 10.5))
     format_axis(axis_b)
 
     axis_c.set_title('Peak location relative to interval boundary')
     rows_c = [
-        ('Cao et al. 2024, past', 0, .01, 0., .10, COLOURS['published'], 's'),
-        ('Ramp-down TIC', 1, .3334, .1282, .7014, COLOURS['study'], 'o'),
-        ('Cao et al. 2024, future', 2, -.02, -.13, -.01, COLOURS['published'], 's'),
-        ('Ramp-up TIC', 3, .0126, -.0657, .1299, COLOURS['study'], 'o'),
+        ('Cao et al. 2024, past', 0, None, .01, 0., .10, COLOURS['published']),
+        ('Ramp-down TIC', 1, values(parameters, 'decay_mu', 'tic_down'), None, None, None, COLOURS['study']),
+        ('Cao et al. 2024, future', 2, None, -.02, -.13, -.01, COLOURS['published']),
+        ('Ramp-up TIC', 3, values(parameters, 'rise_mu', 'tic_up'), None, None, None, COLOURS['study']),
     ]
-    for label, y, median, low, high, colour, marker in rows_c:
-        summary_box(axis_c, y, median, low, high, colour)
+    for label, y, data, median, low, high, colour in rows_c:
+        if data is None:
+            summary_box(axis_c, y, median, low, high, colour)
+        else:
+            data_box(axis_c, y, data, colour)
     axis_c.axvline(0, color='#999999', linewidth=.8)
-    axis_c.set(yticks=[0, 1, 2, 3], yticklabels=[row[0] for row in rows_c], xlabel='Peak location (s)', xlim=(-.2, .85))
+    axis_c.set(yticks=[0, 1, 2, 3], yticklabels=[row[0] for row in rows_c], xlabel='Peak location (s)', xlim=(-1.05, 1.05))
     format_axis(axis_c)
 
     width = session_pairs[session_pairs.quantity.eq('field_width')]
@@ -158,6 +183,7 @@ def main():
         'gaussian_mu',
     ].to_numpy()
     alpha = bootstrap_alpha(time_peaks)
+    alpha_samples = bootstrap_alpha_samples(time_peaks)
 
     width = session_pairs[session_pairs.quantity.eq('field_width')]
     width_p = wilcoxon(width.tic_median, width.time_median).pvalue
@@ -182,7 +208,7 @@ def main():
     report = [
         '# parameter comparison with published benchmarks',
         '',
-        'Panels A-C place the wider-window estimates beside the published summary values. The interval is the interquartile range for the cell-level estimates, or the 95% bootstrap interval for alpha in this study; the Cao et al. 2022 interval for alpha is a 95% credible interval.',
+        'Panels A-C place the wider-window distributions beside the published summary values. The blue boxes use the current cell-level values, except panel A where the box shows the bootstrap distribution of alpha estimates. The grey boxes show only the published median and IQR; no whiskers are drawn because the published raw values are unavailable.',
         '',
         'The peak-location exponent alpha describes how time-cell peaks are distributed across the interval. In the Cao et al. 2022 model, alpha = 1 corresponds to logarithmic compression. It is not a fit to the shape of an individual cell. The Cao et al. 2024 values are published medians and interquartile ranges, so these cross-paper panels are descriptive and do not carry a new p value.',
         '',
@@ -195,7 +221,7 @@ def main():
         table.to_string(index=False),
     ]
     (OUTPUT / 'paper_parameter_comparison.md').write_text('\n'.join(report) + '\n', encoding='utf-8')
-    make_figure(parameters, session_pairs, alpha)
+    make_figure(parameters, session_pairs, alpha, alpha_samples)
 
 
 if __name__ == '__main__':
