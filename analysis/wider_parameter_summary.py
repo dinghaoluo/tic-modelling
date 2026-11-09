@@ -202,10 +202,13 @@ def make_figure(parameters, table):
         axis.spines['top'].set_visible(False)
         axis.spines['right'].set_visible(False)
         if final_label is not None:
-            tick_positions = plot_bins[:-1] + np.diff(plot_bins) / 2.
-            tick_labels = [f'{value:g}' for value in tick_positions]
-            tick_labels[-1] = final_label
-            axis.set_xticks(tick_positions, tick_labels)
+            if measure == 'Gaussian σ':
+                axis.set_xticks([0., 1., 2., 3., 4.5], ['0', '1', '2', '3', '≥4'])
+            else:
+                tick_positions = plot_bins[:-1] + np.diff(plot_bins) / 2.
+                tick_labels = [f'{value:g}' for value in tick_positions]
+                tick_labels[-1] = final_label
+                axis.set_xticks(tick_positions, tick_labels)
     axes[0].legend(frameon=False, fontsize=8, bbox_to_anchor=(1.02, 1.), loc='upper left')
     for label, axis in zip('ABC', axes):
         axis.text(-.10, 1.06, label, transform=axis.transAxes,
