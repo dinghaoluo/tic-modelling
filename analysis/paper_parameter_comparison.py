@@ -89,16 +89,29 @@ def parameter_name(group, quantity):
     return 'rise_tau' if group == 'tic_up' else 'decay_tau'
 
 
+def display_parameter_name(group, quantity):
+    parameter = parameter_name(group, quantity)
+    return '-rise_mu' if group == 'tic_up' and quantity == 'peak' else parameter
+
+
+def raw_parameter_name(parameter):
+    return parameter[1:] if parameter.startswith('-') else parameter
+
+
 def fitted_values(parameters, group, quantity, include_bound=False):
     part = parameters[parameters.group.eq(group)].copy()
     parameter = parameter_name(group, quantity)
     bound = f'{parameter}_at_bound'
     if not include_bound:
         part = part.loc[~part[bound].astype(bool)]
-    return part.loc[part[parameter].notna(), parameter].to_numpy(), parameter
+    values = part.loc[part[parameter].notna(), parameter].to_numpy()
+    if group == 'tic_up' and quantity == 'peak':
+        values = -values
+    return values, display_parameter_name(group, quantity)
 
 
 def bound_percentages(parameters, group, parameter):
+    parameter = raw_parameter_name(parameter)
     part = parameters[parameters.group.eq(group)]
     values = part.loc[part[f'{parameter}_at_bound'].astype(bool), parameter].dropna().to_numpy()
     if not len(values):
@@ -114,11 +127,14 @@ def bound_percentages(parameters, group, parameter):
 
 def session_reference_test(parameters, group, quantity, reference, include_bound):
     part = parameters[parameters.group.eq(group)].copy()
-    values, parameter = fitted_values(part, group, quantity, include_bound=include_bound)
+    parameter = parameter_name(group, quantity)
     bound = f'{parameter}_at_bound'
     if not include_bound:
         part = part.loc[~part[bound].astype(bool)]
-    session_values = part.groupby('session')[parameter].median().dropna()
+    values = part[parameter].copy()
+    if group == 'tic_up' and quantity == 'peak':
+        values = -values
+    session_values = values.groupby(part['session']).median().dropna()
     return dict(
         n_sessions=len(session_values),
         session_median=float(session_values.median()),
@@ -256,6 +272,9 @@ def main():
             'quantity': 'time constant' if quantity == 'tau' else 'fitted peak location',
             'group': LABELS[group],
             'source': parameter,
+            'convention': ('-rise_mu, relative to interval end' if group == 'tic_up' and quantity == 'peak'
+                           else 'decay_mu, relative to last lick' if group == 'tic_down' and quantity == 'peak'
+                           else ''),
             'n_cells_including_bounds': len(values_in),
             'n_cells_excluding_bounds': len(values_ex),
             'median_including_bounds': float(np.median(values_in)),

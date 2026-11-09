@@ -108,6 +108,9 @@ def summary_table(parameters):
                 'p_vs_time_cells_excluding_bounds': np.nan,
                 'pct_lower_bound': lower_pct,
                 'pct_upper_bound': upper_pct,
+                'pct_in_final_bin': final_bin_proportion(
+                    cells_in[parameter].to_numpy(), measure,
+                    cells_in[f'{parameter}_at_bound'].to_numpy()),
             }
             if group != 'time_cell':
                 n_in, p_in, _ = paired_test(parameters, group, measure, include_bound=True)
@@ -127,6 +130,26 @@ def p_label(value):
     if value < .001:
         return 'p < 0.001'
     return f'p = {value:.3g}'
+
+
+def final_bin_limit(measure):
+    if measure == 'Gaussian σ':
+        return 4.
+    if measure == 'Time constant τ':
+        return 10.
+    return None
+
+
+def final_bin_proportion(values, measure, at_bound=None):
+    limit = final_bin_limit(measure)
+    if limit is None:
+        return np.nan
+    values = np.asarray(values, dtype=float)
+    in_final_bin = values >= limit - 1e-5
+    if at_bound is not None:
+        at_bound = np.asarray(at_bound, dtype=bool)
+        in_final_bin |= at_bound & (values > limit / 2.)
+    return 100. * np.mean(in_final_bin)
 
 
 def histogram_bins(values, measure):
@@ -154,43 +177,36 @@ def make_figure(parameters, table):
         ('Time constant τ', 'τ (s)'),
     ]
     for axis, (measure, xlabel) in zip(axes, measures):
-        pieces = []
-        bins, final_label = histogram_bins(
-            np.concatenate([
-                parameter_values(parameters, group, measure, include_bound=True)[0][parameter_name(group, measure)].to_numpy()
-                for group in GROUPS
-            ]),
-            measure,
-        )
+        values_all = np.concatenate([
+            parameter_values(parameters, group, measure, include_bound=True)[0][parameter_name(group, measure)].to_numpy()
+            for group in GROUPS
+        ])
+        bins, final_label = histogram_bins(values_all, measure)
+        plot_bins = bins.copy()
+        limit = final_bin_limit(measure)
+        if limit is not None:
+            plot_bins[-1] = limit + 1.
         for group in GROUPS:
             cells, parameter, _ = parameter_values(parameters, group, measure, include_bound=True)
             values = cells[parameter].to_numpy()
-            counts, edges = np.histogram(values, bins=bins)
-            proportions = counts / len(values)
-            widths = np.diff(edges)
-            widths[-1] = widths[-2] if np.isfinite(widths[-1]) else widths[-2]
-            centres = edges[:-1] + widths / 2.
-            axis.bar(centres, proportions, width=widths * .9, alpha=.48,
-                     color=COLOURS[group], label=LABELS[group], align='center')
+            if limit is not None:
+                values = values.copy()
+                at_bound = cells[f'{parameter}_at_bound'].astype(bool).to_numpy()
+                upper_mask = (values >= limit - 1e-5) | (at_bound & (values > limit / 2.))
+                values[upper_mask] = limit + 1e-6
+            axis.hist(values, bins=plot_bins, weights=np.ones(len(values)) / len(values),
+                      histtype='step', linewidth=1.5, color=COLOURS[group], label=LABELS[group])
         axis.set_title(measure)
         axis.set_xlabel(xlabel)
         axis.set_ylabel('Proportion of cells')
         axis.spines['top'].set_visible(False)
         axis.spines['right'].set_visible(False)
         if final_label is not None:
-            tick_positions = edges[:-1] + widths / 2.
+            tick_positions = plot_bins[:-1] + np.diff(plot_bins) / 2.
             tick_labels = [f'{value:g}' for value in tick_positions]
             tick_labels[-1] = final_label
             axis.set_xticks(tick_positions, tick_labels)
-        for index, group in enumerate(GROUPS[:2]):
-            row = table.loc[
-                (table.group == LABELS[group]) & (table.measure == measure),
-            ].iloc[0]
-            axis.text(.03, .96 - .10 * index,
-                      f'{LABELS[group]}: p in {p_label(row.p_vs_time_cells_including_bounds)}, '
-                      f'p ex {p_label(row.p_vs_time_cells_excluding_bounds)}',
-                      transform=axis.transAxes, va='top', fontsize=7)
-    axes[0].legend(frameon=False, fontsize=8)
+    axes[0].legend(frameon=False, fontsize=8, bbox_to_anchor=(1.02, 1.), loc='upper left')
     for label, axis in zip('ABC', axes):
         axis.text(-.10, 1.06, label, transform=axis.transAxes,
                   fontsize=12, fontweight='bold', va='top')

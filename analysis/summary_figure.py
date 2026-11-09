@@ -119,6 +119,8 @@ def parameter_name(group, measure):
 
 def bound_percentages(cells, parameter):
     values = cells.loc[cells[f'{parameter}_at_bound'].astype(bool), parameter].dropna().to_numpy()
+    if parameter.startswith('rise_') and len(values) and np.nanmedian(values) < 0:
+        values = -values
     if not len(values):
         return 0., 0.
     model = 'gaussian' if parameter.startswith('gaussian_') else 'rise' if parameter.startswith('rise_') else 'decay'
@@ -132,7 +134,11 @@ def bound_percentages(cells, parameter):
 def parameter_values(fits, group, measure, include_bound=False):
     parameter = parameter_name(group, measure)
     cells = fits[fits.group == group]
-    return (cells if include_bound else cells[~cells[f'{parameter}_at_bound'].astype(bool)]), parameter, 100 * cells[f'{parameter}_at_bound'].astype(bool).mean()
+    cells = cells if include_bound else cells[~cells[f'{parameter}_at_bound'].astype(bool)]
+    cells = cells.loc[cells[parameter].notna()].copy()
+    if group == 'tic_up' and measure == 'peak':
+        cells[parameter] = -cells[parameter]
+    return cells, parameter, 100 * fits.loc[fits.group == group, f'{parameter}_at_bound'].astype(bool).mean()
 
 
 def paired_parameters(left, right, left_parameter, right_parameter):
@@ -186,12 +192,19 @@ def make_table(fits, primary, polynomial, population, literature):
                    'n sessions': retained.session.nunique(), **distribution(retained[parameter]),
                    '% cells at bound': bound_percentage,
                    'comparison': 'reference' if group == 'time_cell' else 'Time cell',
-                   'source parameter': parameter}
+                   'source parameter': ('-rise_mu' if group == 'tic_up' and measure == 'peak' else parameter),
+                   'convention': ('-rise_mu, relative to interval end' if group == 'tic_up' and measure == 'peak'
+                                  else 'decay_mu, relative to last lick' if group == 'tic_down' and measure == 'peak'
+                                  else '')}
             if group != 'time_cell':
                 reference_cells, reference_parameter, _ = parameter_values(fits, 'time_cell', measure)
                 p, sd_p, pairs = paired_parameters(retained, reference_cells, parameter, reference_parameter)
-                row.update({'n sessions': len(pairs), 'p for median': p, 'p for SD': sd_p})
-                pair_rows.extend([dict(group=label, measure=measure, **record) for record in pairs.to_dict('records')])
+                if not (measure == 'peak' and group == 'tic_up'):
+                    row.update({'n sessions': len(pairs), 'p for median': p, 'p for SD': sd_p})
+                    pair_rows.extend([dict(group=label, measure=measure,
+                                           convention=('-rise_mu, relative to interval end' if group == 'tic_up' and measure == 'peak'
+                                                       else 'decay_mu, relative to last lick' if group == 'tic_down' and measure == 'peak' else ''),
+                                           **record) for record in pairs.to_dict('records')])
             if measure == 'ramp rate' and group in ['tic_down', 'tic_up']:
                 row.update({'published value': 2.25 if group == 'tic_down' else 1.03,
                             'citation': 'published ramp benchmark'})
@@ -262,8 +275,8 @@ def make_figure(table, fits, suffix='', wider=False):
                xticks=range(len(LABELS)), xticklabels=[f'{label}\n(n = {int(selected.loc[label, "n cells"])})' for label in LABELS])
         ax.legend(frameon=False, loc='upper center', bbox_to_anchor=(.5, 1.28), ncol=3)
     for ax, panel, measure, title, ylabel in zip(axes[2:], ['C', 'D', 'E'],
-            ['peak', 'width', 'ramp rate'], ['Peak time', 'Gaussian width', 'Time constant'],
-            ['Peak time (s)', 'Gaussian width, σ (s)', 'Time constant, τ (s)']):
+            ['peak', 'width', 'ramp rate'], ['Peak location', 'Gaussian width', 'Time constant'],
+            ['Peak location (s)', 'Gaussian width, \u03c3 (s)', 'Time constant, \u03c4 (s)']):
         values = [parameter_values(fits, group, measure, include_bound=wider and measure == 'peak')[0][parameter_values(fits, group, measure)[1]].to_numpy()
                   for group in GROUPS]
         boxes = ax.boxplot(values, labels=LABELS, showfliers=False, patch_artist=True,
@@ -281,6 +294,8 @@ def make_figure(table, fits, suffix='', wider=False):
         low, high = ax.get_ylim()
         span = high - low
         for i, label in enumerate(LABELS[:2]):
+            if panel == 'C' and label == LABELS[1]:
+                continue
             row = table[(table.group == label) & (table.measure == measure)].iloc[0]
             height = high + (.08 + .19 * i) * span
             ax.plot([i + 1, i + 1, 3, 3], [height, height + .035 * span, height + .035 * span, height],
@@ -381,11 +396,18 @@ def wider_main():
             if group != 'time_cell':
                 p_in, sd_in, pairs_in = paired_parameters(all_left, all_right, parameter, right_parameter)
                 p_ex, sd_ex, pairs_ex = paired_parameters(unbound_left, unbound_right, parameter, right_parameter)
-                pair_rows.extend([dict(group=label, measure=measure, bound_subset='included', **record)
-                                  for record in pairs_in.to_dict('records')])
-                pair_rows.extend([dict(group=label, measure=measure, bound_subset='excluded', **record)
-                                  for record in pairs_ex.to_dict('records')])
+                if not (measure == 'peak' and group == 'tic_up'):
+                    pair_rows.extend([dict(group=label, measure=measure, bound_subset='included',
+                                           convention=('-rise_mu, relative to interval end' if group == 'tic_up' and measure == 'peak'
+                                                       else 'decay_mu, relative to last lick' if group == 'tic_down' and measure == 'peak' else ''),
+                                           **record) for record in pairs_in.to_dict('records')])
+                    pair_rows.extend([dict(group=label, measure=measure, bound_subset='excluded',
+                                           convention=('-rise_mu, relative to interval end' if group == 'tic_up' and measure == 'peak'
+                                                       else 'decay_mu, relative to last lick' if group == 'tic_down' and measure == 'peak' else ''),
+                                           **record) for record in pairs_ex.to_dict('records')])
             else:
+                p_in = sd_in = p_ex = sd_ex = np.nan
+            if measure == 'peak' and group == 'tic_up':
                 p_in = sd_in = p_ex = sd_ex = np.nan
             for bound_subset, retained, p_value, sd_value in [
                     ('included', all_left, p_in, sd_in),
@@ -393,7 +415,11 @@ def wider_main():
                 row = {'group': label, 'measure': measure, 'bound subset': bound_subset,
                        'n cells': len(retained), 'n sessions': retained.session.nunique(),
                        **distribution(retained[parameter]), '% lower bound': lower_pct,
-                       '% upper bound': upper_pct, 'source parameter': parameter,
+                       '% upper bound': upper_pct,
+                       'source parameter': ('-rise_mu' if group == 'tic_up' and measure == 'peak' else parameter),
+                       'convention': ('-rise_mu, relative to interval end' if group == 'tic_up' and measure == 'peak'
+                                      else 'decay_mu, relative to last lick' if group == 'tic_down' and measure == 'peak'
+                                      else ''),
                        'comparison': 'reference' if group == 'time_cell' else 'Time cell',
                        'p for median': p_value, 'p for SD': sd_value}
                 if measure == 'ramp rate' and group in ['tic_down', 'tic_up']:
