@@ -6,13 +6,15 @@ summarise fitted Gaussian and exponential parameters by cell group
 
 #%% imports
 from pathlib import Path
+import sys
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from scipy.stats import wilcoxon
-
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from utils.rf_models_v1_2 import BOUNDS
 WIDER = ROOT / 'outputs' / 'undecided_check'
 OUTPUT = ROOT / 'outputs' / 'wider_evidence'
 FIGURES = ROOT / 'figures' / 'wider_evidence'
@@ -36,14 +38,17 @@ def load_parameters():
     return pd.concat([pd.read_csv(path) for path in paths], ignore_index=True)
 
 
+def parameter_name(group, measure):
+    if measure == 'Gaussian μ':
+        return 'gaussian_mu'
+    if measure == 'Gaussian σ':
+        return 'gaussian_sigma'
+    return 'rise_tau' if group == 'tic_up' else 'decay_tau'
+
+
 def parameter_values(parameters, group, measure, include_bound=False):
     part = parameters[parameters.group.eq(group)].copy()
-    if measure == 'Gaussian μ':
-        parameter = 'gaussian_mu'
-    elif measure == 'Gaussian σ':
-        parameter = 'gaussian_sigma'
-    else:
-        parameter = 'rise_tau' if group == 'tic_up' else 'decay_tau'
+    parameter = parameter_name(group, measure)
     bound = f'{parameter}_at_bound'
     if not include_bound:
         part = part.loc[~part[bound].astype(bool)]
@@ -51,9 +56,23 @@ def parameter_values(parameters, group, measure, include_bound=False):
     return part, parameter, 100 * parameters.loc[parameters.group.eq(group), bound].astype(bool).mean()
 
 
-def paired_test(parameters, group, measure):
-    left, parameter, _ = parameter_values(parameters, group, measure)
-    right, right_parameter, _ = parameter_values(parameters, 'time_cell', measure)
+def bound_percentages(parameters, group, parameter):
+    part = parameters[parameters.group.eq(group)]
+    values = part.loc[part[f'{parameter}_at_bound'].astype(bool), parameter].dropna().to_numpy()
+    if not len(values):
+        return 0., 0.
+    model = 'gaussian' if parameter.startswith('gaussian_') else 'rise' if parameter.startswith('rise_') else 'decay'
+    limit_index = 0 if parameter.endswith('_mu') else 1
+    lower_limit, upper_limit = BOUNDS[model][0][limit_index], BOUNDS[model][1][limit_index]
+    lower = np.isclose(values, lower_limit, rtol=0., atol=1e-5)
+    upper = np.isclose(values, upper_limit, rtol=0., atol=1e-5)
+    denominator = len(part)
+    return 100. * lower.sum() / denominator, 100. * upper.sum() / denominator
+
+
+def paired_test(parameters, group, measure, include_bound):
+    left, parameter, _ = parameter_values(parameters, group, measure, include_bound=include_bound)
+    right, right_parameter, _ = parameter_values(parameters, 'time_cell', measure, include_bound=include_bound)
     pairs = []
     for session in sorted(set(left.session) & set(right.session)):
         left_values = left.loc[left.session.eq(session), parameter]
@@ -69,25 +88,34 @@ def summary_table(parameters):
     rows = []
     for group in GROUPS:
         for measure in ['Gaussian μ', 'Gaussian σ', 'Time constant τ']:
-            actual_measure = 'Time constant τ' if measure == 'Time constant τ' else measure
-            cells, parameter, pct_at_bound = parameter_values(parameters, group, actual_measure)
+            cells_in, parameter, _ = parameter_values(parameters, group, measure, include_bound=True)
+            cells_ex, _, _ = parameter_values(parameters, group, measure, include_bound=False)
+            lower_pct, upper_pct = bound_percentages(parameters, group, parameter)
             row = {
                 'group': LABELS[group],
                 'measure': measure,
                 'source_parameter': parameter,
-                'n_cells': len(cells),
-                'n_sessions': cells.session.nunique(),
-                'median': cells[parameter].median(),
-                'q25': cells[parameter].quantile(.25),
-                'q75': cells[parameter].quantile(.75),
-                'sd': cells[parameter].std(ddof=1),
-                'p_vs_time_cells': np.nan,
-                'pct_at_bound': pct_at_bound,
+                'n_cells_including_bounds': len(cells_in),
+                'n_cells_excluding_bounds': len(cells_ex),
+                'n_sessions_including_bounds': cells_in.session.nunique(),
+                'n_sessions_excluding_bounds': cells_ex.session.nunique(),
+                'median_including_bounds': cells_in[parameter].median(),
+                'median_excluding_bounds': cells_ex[parameter].median(),
+                'q25_excluding_bounds': cells_ex[parameter].quantile(.25),
+                'q75_excluding_bounds': cells_ex[parameter].quantile(.75),
+                'sd_excluding_bounds': cells_ex[parameter].std(ddof=1),
+                'p_vs_time_cells_including_bounds': np.nan,
+                'p_vs_time_cells_excluding_bounds': np.nan,
+                'pct_lower_bound': lower_pct,
+                'pct_upper_bound': upper_pct,
             }
             if group != 'time_cell':
-                n_sessions, p_value, _ = paired_test(parameters, group, actual_measure)
-                row['n_sessions'] = n_sessions
-                row['p_vs_time_cells'] = p_value
+                n_in, p_in, _ = paired_test(parameters, group, measure, include_bound=True)
+                n_ex, p_ex, _ = paired_test(parameters, group, measure, include_bound=False)
+                row['n_sessions_including_bounds'] = n_in
+                row['n_sessions_excluding_bounds'] = n_ex
+                row['p_vs_time_cells_including_bounds'] = p_in
+                row['p_vs_time_cells_excluding_bounds'] = p_ex
             rows.append(row)
     return pd.DataFrame(rows)
 
@@ -99,6 +127,14 @@ def p_label(value):
     if value < .001:
         return 'p < 0.001'
     return f'p = {value:.3g}'
+
+
+def histogram_bins(values, measure):
+    if measure == 'Gaussian σ':
+        return np.r_[np.arange(0., 4., .5), 4., np.inf], '≥4'
+    if measure == 'Time constant τ':
+        return np.r_[np.arange(0., 10., 1.), 10., np.inf], '≥10'
+    return np.linspace(np.nanmin(values), np.nanmax(values), 26), None
 
 
 def make_figure(parameters, table):
@@ -119,32 +155,41 @@ def make_figure(parameters, table):
     ]
     for axis, (measure, xlabel) in zip(axes, measures):
         pieces = []
-        bounds = []
+        bins, final_label = histogram_bins(
+            np.concatenate([
+                parameter_values(parameters, group, measure, include_bound=True)[0][parameter_name(group, measure)].to_numpy()
+                for group in GROUPS
+            ]),
+            measure,
+        )
         for group in GROUPS:
             cells, parameter, _ = parameter_values(parameters, group, measure, include_bound=True)
-            unbound, _, _ = parameter_values(parameters, group, measure)
-            pieces.append(cells[parameter].to_numpy())
-            bounds.append(cells.loc[~cells.index.isin(unbound.index), parameter].to_numpy())
-        all_values = np.concatenate(pieces)
-        bins = np.linspace(np.nanmin(all_values), np.nanmax(all_values), 26)
-        for group, values in zip(GROUPS, pieces):
-            axis.hist(values, bins=bins, density=True, alpha=.48,
-                      color=COLOURS[group], label=LABELS[group])
+            values = cells[parameter].to_numpy()
+            counts, edges = np.histogram(values, bins=bins)
+            proportions = counts / len(values)
+            widths = np.diff(edges)
+            widths[-1] = widths[-2] if np.isfinite(widths[-1]) else widths[-2]
+            centres = edges[:-1] + widths / 2.
+            axis.bar(centres, proportions, width=widths * .9, alpha=.48,
+                     color=COLOURS[group], label=LABELS[group], align='center')
         axis.set_title(measure)
         axis.set_xlabel(xlabel)
-        axis.set_ylabel('Density')
+        axis.set_ylabel('Proportion of cells')
         axis.spines['top'].set_visible(False)
         axis.spines['right'].set_visible(False)
-        if measure != 'Gaussian μ':
-            axis.set_xlim(bins[0], bins[-1])
+        if final_label is not None:
+            tick_positions = edges[:-1] + widths / 2.
+            tick_labels = [f'{value:g}' for value in tick_positions]
+            tick_labels[-1] = final_label
+            axis.set_xticks(tick_positions, tick_labels)
         for index, group in enumerate(GROUPS[:2]):
-            p_value = table.loc[
+            row = table.loc[
                 (table.group == LABELS[group]) & (table.measure == measure),
-                'p_vs_time_cells',
             ].iloc[0]
-            axis.text(.03, .96 - .09 * index,
-                      f'{LABELS[group]}: {p_label(p_value)}',
-                      transform=axis.transAxes, va='top', fontsize=8)
+            axis.text(.03, .96 - .10 * index,
+                      f'{LABELS[group]}: p in {p_label(row.p_vs_time_cells_including_bounds)}, '
+                      f'p ex {p_label(row.p_vs_time_cells_excluding_bounds)}',
+                      transform=axis.transAxes, va='top', fontsize=7)
     axes[0].legend(frameon=False, fontsize=8)
     for label, axis in zip('ABC', axes):
         axis.text(-.10, 1.06, label, transform=axis.transAxes,

@@ -27,13 +27,13 @@ def test_categories_sum_to_one_hundred():
 
 
 def test_parameter_exclusion_is_not_shape_exclusion():
-    cells = pd.DataFrame({'group': ['tic_down', 'tic_down'], 'gaussian_mu': [1., 2.],
-                          'gaussian_mu_at_bound': [False, True],
+    cells = pd.DataFrame({'group': ['tic_down', 'tic_down'], 'decay_mu': [1., 2.],
+                          'decay_mu_at_bound': [False, True],
                           'gaussian_sigma_at_bound': [True, False]})
     kept, parameter, percentage = parameter_values(cells, 'tic_down', 'peak')
-    assert parameter == 'gaussian_mu'
+    assert parameter == 'decay_mu'
     assert percentage == 50
-    np.testing.assert_array_equal(kept.gaussian_mu, [1.])
+    np.testing.assert_array_equal(kept.decay_mu, [1.])
 
 
 def test_bound_inclusion_keeps_every_cell():

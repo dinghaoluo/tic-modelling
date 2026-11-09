@@ -23,6 +23,7 @@ sys.path.insert(0, str(ROOT))
 from utils.trial_error_scores import trial_mse
 from analysis.compare_models_trial import trial_loglikelihood, trial_contrast
 from analysis.compare_models import paired_test
+from utils.rf_models_v1_2 import BOUNDS
 
 #%% constants
 OUTPUT = ROOT / 'outputs' / 'model_comparison'
@@ -108,11 +109,30 @@ def category_summary(cells, a, b):
     return percentages, p, len(medians)
 
 
+def parameter_name(group, measure):
+    if measure == 'peak':
+        return 'gaussian_mu' if group == 'time_cell' else ('rise_mu' if group == 'tic_up' else 'decay_mu')
+    if measure == 'width':
+        return 'gaussian_sigma'
+    return 'rise_tau' if group == 'tic_up' else 'decay_tau'
+
+
+def bound_percentages(cells, parameter):
+    values = cells.loc[cells[f'{parameter}_at_bound'].astype(bool), parameter].dropna().to_numpy()
+    if not len(values):
+        return 0., 0.
+    model = 'gaussian' if parameter.startswith('gaussian_') else 'rise' if parameter.startswith('rise_') else 'decay'
+    limit_index = 0 if parameter.endswith('_mu') else 1
+    lower_limit, upper_limit = BOUNDS[model][0][limit_index], BOUNDS[model][1][limit_index]
+    lower = np.isclose(values, lower_limit, rtol=0., atol=1e-5)
+    upper = np.isclose(values, upper_limit, rtol=0., atol=1e-5)
+    return 100. * lower.sum() / len(cells), 100. * upper.sum() / len(cells)
+
+
 def parameter_values(fits, group, measure, include_bound=False):
-    parameter = {'peak': 'gaussian_mu', 'width': 'gaussian_sigma',
-                 'ramp rate': 'rise_tau' if group == 'tic_up' else 'decay_tau'}[measure]
+    parameter = parameter_name(group, measure)
     cells = fits[fits.group == group]
-    return (cells if include_bound else cells[~cells[f'{parameter}_at_bound']]), parameter, 100 * cells[f'{parameter}_at_bound'].mean()
+    return (cells if include_bound else cells[~cells[f'{parameter}_at_bound'].astype(bool)]), parameter, 100 * cells[f'{parameter}_at_bound'].astype(bool).mean()
 
 
 def paired_parameters(left, right, left_parameter, right_parameter):
@@ -172,8 +192,6 @@ def make_table(fits, primary, polynomial, population, literature):
                 p, sd_p, pairs = paired_parameters(retained, reference_cells, parameter, reference_parameter)
                 row.update({'n sessions': len(pairs), 'p for median': p, 'p for SD': sd_p})
                 pair_rows.extend([dict(group=label, measure=measure, **record) for record in pairs.to_dict('records')])
-            if measure == 'width' and group == 'time_cell':
-                row.update({'published value': .69, 'citation': 'published time-cell benchmark'})
             if measure == 'ramp rate' and group in ['tic_down', 'tic_up']:
                 row.update({'published value': 2.25 if group == 'tic_down' else 1.03,
                             'citation': 'published ramp benchmark'})
@@ -271,10 +289,9 @@ def make_figure(table, fits, suffix='', wider=False):
             ax.text((i + 1 + 3) / 2, height + .05 * span, text, ha='center', va='bottom', fontsize=10)
             annotations.append(dict(panel=panel, group=label, measure=measure, p=float(row['p for median']), text=text))
         ax.set_ylim(low, high + .47 * span)
-        if measure == 'width':
-            ax.hlines(.69, 2.78, 3.22, colors='#AA4499', linewidth=2.2)
-            ax.legend(handles=[Line2D([0], [0], color='#AA4499', linewidth=2.2,
-                       label='Published time cells')] + ([Line2D([0], [0], color='black', marker='x', linestyle='none', label='At bound')] if wider else []), frameon=False, loc='upper left', fontsize=9)
+        if measure == 'width' and wider:
+            ax.legend(handles=[Line2D([0], [0], color='black', marker='x', linestyle='none',
+                       label='At bound')], frameon=False, loc='upper left', fontsize=9)
         if measure == 'ramp rate':
             ax.hlines(2.25, .78, 1.22, colors='#AA4499', linewidth=2.2)
             ax.hlines(1.03, 1.78, 2.22, colors='#CCBB44', linewidth=2.2)
@@ -356,25 +373,29 @@ def wider_main():
                          **distribution(cells.mean_contrast), 'comparison': f'{a} minus {b}', 'p for median': p,
                          **{'% ' + category: value for category, value in zip(categories, percentages)}})
         for measure in ['peak', 'width', 'ramp rate']:
-            stats_left, stats_parameter, percentage = parameter_values(parameters, group, measure, include_bound=False)
-            stats_right, stats_right_parameter, _ = parameter_values(parameters, 'time_cell', measure, include_bound=False)
+            all_left, parameter, _ = parameter_values(parameters, group, measure, include_bound=True)
+            all_right, right_parameter, _ = parameter_values(parameters, 'time_cell', measure, include_bound=True)
+            unbound_left, _, _ = parameter_values(parameters, group, measure, include_bound=False)
+            unbound_right, _, _ = parameter_values(parameters, 'time_cell', measure, include_bound=False)
+            lower_pct, upper_pct = bound_percentages(all_left, parameter)
             if group != 'time_cell':
-                stats_p, stats_sd_p, stats_pairs = paired_parameters(
-                    stats_left, stats_right, stats_parameter, stats_right_parameter)
+                p_in, sd_in, pairs_in = paired_parameters(all_left, all_right, parameter, right_parameter)
+                p_ex, sd_ex, pairs_ex = paired_parameters(unbound_left, unbound_right, parameter, right_parameter)
+                pair_rows.extend([dict(group=label, measure=measure, bound_subset='included', **record)
+                                  for record in pairs_in.to_dict('records')])
                 pair_rows.extend([dict(group=label, measure=measure, bound_subset='excluded', **record)
-                                  for record in stats_pairs.to_dict('records')])
+                                  for record in pairs_ex.to_dict('records')])
             else:
-                stats_p, stats_sd_p = np.nan, np.nan
-            for bound_subset in ['included', 'excluded']:
-                retained, parameter, _ = parameter_values(
-                    parameters, group, measure, include_bound=bound_subset == 'included')
+                p_in = sd_in = p_ex = sd_ex = np.nan
+            for bound_subset, retained, p_value, sd_value in [
+                    ('included', all_left, p_in, sd_in),
+                    ('excluded', unbound_left, p_ex, sd_ex)]:
                 row = {'group': label, 'measure': measure, 'bound subset': bound_subset,
                        'n cells': len(retained), 'n sessions': retained.session.nunique(),
-                       **distribution(retained[parameter]), '% cells at bound': percentage,
-                       'source parameter': parameter, 'comparison': 'reference' if group == 'time_cell' else 'Time cell',
-                       'p for median': stats_p, 'p for SD': stats_sd_p}
-                if measure == 'width' and group == 'time_cell':
-                    row.update({'published value': .69, 'citation': 'published time-cell benchmark'})
+                       **distribution(retained[parameter]), '% lower bound': lower_pct,
+                       '% upper bound': upper_pct, 'source parameter': parameter,
+                       'comparison': 'reference' if group == 'time_cell' else 'Time cell',
+                       'p for median': p_value, 'p for SD': sd_value}
                 if measure == 'ramp rate' and group in ['tic_down', 'tic_up']:
                     row.update({'published value': 2.25 if group == 'tic_down' else 1.03,
                                 'citation': 'published ramp benchmark'})
@@ -420,7 +441,7 @@ def wider_main():
                   peak='all cells shown with bound cells marked; statistics exclude bound cells',
                   session_tests='two-sided paired session medians and SDs; all sessions with finite group medians',
                   polynomials='only the authorised degrees one and four; no other models fitted',
-                  literature='published width and tau references retained; no new exponent or slope estimated')
+                  literature='published ramp references retained; no new exponent or slope estimated')
     (OUTPUT / 'summary_figure_wider_checks.json').write_text(json.dumps(report, indent=2))
     print(json.dumps(report, indent=2), flush=True)
 

@@ -6,6 +6,7 @@ run read-only peak, alpha, width and trial-count diagnostics
 
 #%% imports
 import argparse
+import re
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -19,23 +20,6 @@ from scipy.stats import wilcoxon
 
 #%% constants
 GROUPS = ['tic_down', 'tic_up', 'tic_and_time_cell', 'time_cell']
-SESSION_ORDER = [
-    'A132-20221124-02',
-    'A132-20221124-04',
-    'A133-20230120-06',
-    'A133-20230114-02',
-    'A143-20230315-02',
-    'A145-20230313-02',
-    'A147-20230401-02',
-    'A148-20230331-03',
-    'A163-20230903-02',
-    'A164-20230902-05',
-    'A213-20250916-04',
-    'A214-20251009-04',
-    'A215-20251013-02',
-    'A215-20251010-04',
-    'A215-20251013-02',
-]
 GROUP_LABELS = {
     'tic_down': 'Ramp-down TIC',
     'tic_up': 'Ramp-up TIC',
@@ -69,11 +53,25 @@ def load_wider_parameters(root):
     return pd.concat([pd.read_csv(path) for path in sorted(wide.glob('*_wider_parameters.csv'))], ignore_index=True)
 
 
-def load_first_lick_medians(path):
+def load_session_order(source_path):
+    order = []
+    for line in source_path.read_text(encoding='utf-8').splitlines():
+        stripped = line.lstrip()
+        if stripped.startswith('%') or '{' not in line:
+            continue
+        match = re.search(r'A\d{3}-\d{8}-\d{2}', line)
+        if match:
+            order.append(match.group(0))
+    if len(order) != len(set(order)):
+        raise ValueError('source session order contains duplicates')
+    return order
+
+
+def load_first_lick_medians(path, session_order):
     values = np.asarray(loadmat(path, squeeze_me=True)['Med3545']).ravel().astype(float)
-    if len(values) != len(SESSION_ORDER):
-        raise ValueError('first-lick session count does not match the repository session list')
-    return dict(zip(SESSION_ORDER, values))
+    if len(values) != len(session_order):
+        raise ValueError('first-lick session count does not match the source session order')
+    return dict(zip(session_order, values))
 
 
 #%% peak diagnostics
@@ -330,12 +328,13 @@ def main():
     output.mkdir(parents=True, exist_ok=True)
     figures.mkdir(parents=True, exist_ok=True)
 
+    order_file = raw_root / 'immobile_code' / 'Paths' / 'PathFor4sData.m'
+    session_order = load_session_order(order_file)
     first_lick = load_first_lick_medians(
         raw_root / 'immobile_code' / 'RiseDown' / 'tables' / '2025-05to05' /
-        'Variable' / 'Path4sData' / 'FirstLickMedSessions.mat'
+        'Variable' / 'Path4sData' / 'FirstLickMedSessions.mat', session_order
     )
-    fits = pd.read_csv(root / 'outputs' / 'fits_v1_2' / 'fits_all.csv')
-    alpha_fits = load_wider_parameters(root)
+    fits = load_wider_parameters(root)
     widths = pd.read_csv(root / 'outputs' / 'width_summary' / 'widths.csv')
     peaks = peak_table(
         widths,
@@ -348,7 +347,7 @@ def main():
         fits,
         figures / 'threshold_peak_vs_gaussian_mu_time_cells',
     )
-    alpha = alpha_table(alpha_fits, first_lick)
+    alpha = alpha_table(fits, first_lick)
     width = width_table(root, raw_root)
     exclusions = trial_exclusion_table(root)
 
@@ -359,6 +358,9 @@ def main():
     exclusions.to_csv(output / 'trial_exclusions.csv', index=False)
     report = [
         '# read-only diagnostics',
+        '',
+        '## session order source',
+        str(order_file),
         '',
         '## threshold peak fractions',
         fractions.to_string(index=False),
