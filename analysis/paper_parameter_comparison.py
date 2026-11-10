@@ -222,7 +222,7 @@ def make_figure(parameters):
     axis.axvline(0, color='#999999', linewidth=.8)
     axis.set(yticks=[0, 1, 2, 3],
              yticklabels=[row[0]['label'] for row in peak_rows],
-             xlabel='μ (s)', xlim=(-1.05, 1.05))
+             xlabel='Peak location (s)')
     format_axis(axis)
 
     for label, axis in zip('AB', axes):

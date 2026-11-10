@@ -273,7 +273,7 @@ def make_figure(table, fits, suffix='', wider=False):
             annotations.append(dict(panel=panel, group=label, measure=title, p=float(row['p for median']), text=text))
         ax.set(title=title, ylabel='Cells (%)', ylim=(0, 114), yticks=np.arange(0, 101, 20),
                xticks=range(len(LABELS)), xticklabels=[f'{label}\n(n = {int(selected.loc[label, "n cells"])})' for label in LABELS])
-        ax.legend(frameon=False, loc='lower center', bbox_to_anchor=(.5, 1.04), ncol=3)
+        ax.legend(frameon=False, loc='lower center', bbox_to_anchor=(.5, 1.10), ncol=3)
     for ax, panel, measure, title, ylabel in zip(axes[2:], ['C', 'D', 'E'],
             ['peak', 'width', 'ramp rate'], ['Peak location', 'Gaussian width', 'Time constant'],
             ['Peak location (s)', 'Gaussian width, \u03c3 (s)', 'Time constant, \u03c4 (s)']):
@@ -327,8 +327,8 @@ def make_figure(table, fits, suffix='', wider=False):
     for ax, letter in zip(axes, 'ABCDE'):
         ax.text(-.12, 1.05, letter, transform=ax.transAxes, fontsize=12, fontweight='bold', ha='right')
     fig.subplots_adjust(left=.065, right=.98, bottom=.09, top=.84)
-    fig.savefig(FIGURES / f'fig_summary{suffix}.png', dpi=200)
-    fig.savefig(FIGURES / f'fig_summary{suffix}.pdf')
+    fig.savefig(FIGURES / f'fig_summary{suffix}.png', dpi=200, bbox_inches='tight', pad_inches=.08)
+    fig.savefig(FIGURES / f'fig_summary{suffix}.pdf', bbox_inches='tight', pad_inches=.08)
     plt.close(fig)
     return annotations
 
