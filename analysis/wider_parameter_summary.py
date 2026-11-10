@@ -166,13 +166,15 @@ def make_figure(parameters, table):
         'ps.fonttype': 42,
         'svg.fonttype': 'none',
         'pdf.use14corefonts': False,
-        'font.size': 9,
-        'axes.titlesize': 11,
-        'axes.labelsize': 9,
+        'font.size': 10,
+        'axes.titlesize': 12,
+        'axes.labelsize': 10,
+        'xtick.labelsize': 9,
+        'ytick.labelsize': 9,
+        'legend.fontsize': 9,
     })
-    fig, axes = plt.subplots(1, 3, figsize=(12.4, 4.2), constrained_layout=True)
+    fig, axes = plt.subplots(1, 2, figsize=(8.6, 4.2), constrained_layout=True)
     measures = [
-        ('Gaussian μ', 'μ (s)'),
         ('Gaussian σ', 'σ (s)'),
         ('Time constant τ', 'τ (s)'),
     ]
@@ -195,7 +197,7 @@ def make_figure(parameters, table):
                 upper_mask = (values >= limit - 1e-5) | (at_bound & (values > limit / 2.))
                 values[upper_mask] = limit + 1e-6
             axis.hist(values, bins=plot_bins, weights=np.ones(len(values)) / len(values),
-                      histtype='step', linewidth=1.5, color=COLOURS[group], label=LABELS[group])
+                      alpha=.48, color=COLOURS[group], label=LABELS[group])
         axis.set_title(measure)
         axis.set_xlabel(xlabel)
         axis.set_ylabel('Proportion of cells')
@@ -210,7 +212,7 @@ def make_figure(parameters, table):
                 tick_labels[-1] = final_label
                 axis.set_xticks(tick_positions, tick_labels)
     axes[0].legend(frameon=False, fontsize=8, bbox_to_anchor=(1.02, 1.), loc='upper left')
-    for label, axis in zip('ABC', axes):
+    for label, axis in zip('AB', axes):
         axis.text(-.10, 1.06, label, transform=axis.transAxes,
                   fontsize=12, fontweight='bold', va='top')
     fig.savefig(FIGURES / 'parameter_distributions.png', dpi=300)

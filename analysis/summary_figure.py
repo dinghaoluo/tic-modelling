@@ -30,7 +30,7 @@ OUTPUT = ROOT / 'outputs' / 'model_comparison'
 FIGURES = ROOT / 'figures' / 'model_comparison'
 FITS = ROOT / 'outputs' / 'fits_v1_2'
 GROUPS = ['tic_down', 'tic_up', 'time_cell']
-LABELS = ['Ramp-down TIC', 'Ramp-up TIC', 'Time cell']
+LABELS = ['Ramp-down TIC', 'Ramp-up TIC', 'Time cells']
 COLOURS = ['#228833', '#4477AA', '#9467BD']
 PRIMARY = {'tic_down': 'gaussian_minus_decay', 'tic_up': 'gaussian_minus_rise',
            'time_cell': 'gaussian_minus_decay'}
@@ -223,7 +223,7 @@ def make_table(fits, primary, polynomial, population, literature):
         if len(selected) != 1:
             raise ValueError(f'published comparison row missing: {measure}')
         value = selected.iloc[0]
-        row = {'group': 'Time cell', 'measure': measure, 'n cells': value.n_cells,
+        row = {'group': 'Time cells', 'measure': measure, 'n cells': value.n_cells,
                'n sessions': fits.loc[fits.group == 'time_cell', 'session'].nunique(),
                'estimate': value.our_value, 'standard error': value.our_standard_error,
                'interval low': value.our_lower, 'interval high': value.our_upper,
@@ -249,8 +249,8 @@ def make_figure(table, fits, suffix='', wider=False):
     import matplotlib.pyplot as plt
     from matplotlib.lines import Line2D
 
-    plt.rcParams.update({'font.size': 11, 'axes.titlesize': 14, 'axes.labelsize': 12,
-                         'xtick.labelsize': 11, 'ytick.labelsize': 11, 'legend.fontsize': 10,
+    plt.rcParams.update({'font.size': 10, 'axes.titlesize': 12, 'axes.labelsize': 10,
+                         'xtick.labelsize': 9, 'ytick.labelsize': 9, 'legend.fontsize': 9,
                          'pdf.fonttype': 42, 'ps.fonttype': 42, 'svg.fonttype': 'none', 'pdf.use14corefonts': False})
     fig = plt.figure(figsize=(16., 11.))
     grid = fig.add_gridspec(2, 6, height_ratios=[1., 1.15], hspace=.55, wspace=1.)
@@ -262,7 +262,7 @@ def make_figure(table, fits, suffix='', wider=False):
             (axes[1], 'B', 'Linear vs curved', ['Curved better', 'Linear better', 'No clear difference'])]:
         selected = table[table.measure == title].set_index('group').loc[LABELS]
         bottom = np.zeros(len(GROUPS))
-        for category, colour in zip(categories, ['#4477AA', '#EE6677', '#BBBBBB']):
+        for category, colour in zip(categories, ['#4D4D4D', '#E69F00', '#BDBDBD']):
             values = selected['% ' + category].to_numpy(float)
             ax.bar(np.arange(len(GROUPS)), values, bottom=bottom, color=colour, width=.65, label=category)
             bottom += values
@@ -273,7 +273,7 @@ def make_figure(table, fits, suffix='', wider=False):
             annotations.append(dict(panel=panel, group=label, measure=title, p=float(row['p for median']), text=text))
         ax.set(title=title, ylabel='Cells (%)', ylim=(0, 114), yticks=np.arange(0, 101, 20),
                xticks=range(len(LABELS)), xticklabels=[f'{label}\n(n = {int(selected.loc[label, "n cells"])})' for label in LABELS])
-        ax.legend(frameon=False, loc='upper center', bbox_to_anchor=(.5, 1.28), ncol=3)
+        ax.legend(frameon=False, loc='lower center', bbox_to_anchor=(.5, 1.04), ncol=3)
     for ax, panel, measure, title, ylabel in zip(axes[2:], ['C', 'D', 'E'],
             ['peak', 'width', 'ramp rate'], ['Peak location', 'Gaussian width', 'Time constant'],
             ['Peak location (s)', 'Gaussian width, \u03c3 (s)', 'Time constant, \u03c4 (s)']):
@@ -291,8 +291,15 @@ def make_figure(table, fits, suffix='', wider=False):
                            color=COLOURS[i], s=22, linewidths=.8, zorder=4)
         ax.set(title=title, ylabel=ylabel)
         ax.tick_params(axis='x', rotation=20)
-        low, high = ax.get_ylim()
-        span = high - low
+        if panel in ['C', 'E']:
+            data = np.concatenate(values)
+            data_low = np.nanmin(data)
+            data_high = np.nanmax(data)
+            span = max(data_high - data_low, 1e-9)
+            low, high = data_low - .05 * span, data_high
+        else:
+            low, high = ax.get_ylim()
+            span = high - low
         for i, label in enumerate(LABELS[:2]):
             if panel == 'C' and label == LABELS[1]:
                 continue
@@ -303,19 +310,23 @@ def make_figure(table, fits, suffix='', wider=False):
             text = p_label(row['p for median'])
             ax.text((i + 1 + 3) / 2, height + .05 * span, text, ha='center', va='bottom', fontsize=10)
             annotations.append(dict(panel=panel, group=label, measure=measure, p=float(row['p for median']), text=text))
-        ax.set_ylim(low, high + .47 * span)
+        if panel in ['C', 'E']:
+            bracket_top = .22 if panel == 'C' else .41
+            ax.set_ylim(low, high + bracket_top * span)
+        else:
+            ax.set_ylim(low, high + .47 * span)
         if measure == 'width' and wider:
             ax.legend(handles=[Line2D([0], [0], color='black', marker='x', linestyle='none',
                        label='At bound')], frameon=False, loc='upper left', fontsize=9)
         if measure == 'ramp rate':
-            ax.hlines(2.25, .78, 1.22, colors='#AA4499', linewidth=2.2)
-            ax.hlines(1.03, 1.78, 2.22, colors='#CCBB44', linewidth=2.2)
-            ax.legend(handles=[Line2D([0], [0], color='#AA4499', linewidth=2.2, label='Published past'),
-                               Line2D([0], [0], color='#CCBB44', linewidth=2.2, label='Published future')] + ([Line2D([0], [0], color='black', marker='x', linestyle='none', label='At bound')] if wider else []),
+            ax.hlines(2.25, .78, 1.22, colors='black', linewidth=2.0, linestyles='-')
+            ax.hlines(1.03, 1.78, 2.22, colors='black', linewidth=2.0, linestyles='--')
+            ax.legend(handles=[Line2D([0], [0], color='black', linewidth=2.0, linestyle='-', label='Cao et al. 2024 past'),
+                               Line2D([0], [0], color='black', linewidth=2.0, linestyle='--', label='Cao et al. 2024 future')],
                       frameon=False, loc='upper left', fontsize=9)
     for ax, letter in zip(axes, 'ABCDE'):
-        ax.text(-.12, 1.05, letter, transform=ax.transAxes, fontsize=16, fontweight='bold', ha='right')
-    fig.subplots_adjust(left=.065, right=.98, bottom=.09, top=.88)
+        ax.text(-.12, 1.05, letter, transform=ax.transAxes, fontsize=12, fontweight='bold', ha='right')
+    fig.subplots_adjust(left=.065, right=.98, bottom=.09, top=.84)
     fig.savefig(FIGURES / f'fig_summary{suffix}.png', dpi=200)
     fig.savefig(FIGURES / f'fig_summary{suffix}.pdf')
     plt.close(fig)

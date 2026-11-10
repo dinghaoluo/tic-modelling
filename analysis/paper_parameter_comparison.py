@@ -179,9 +179,12 @@ def make_figure(parameters):
         'ps.fonttype': 42,
         'svg.fonttype': 'none',
         'pdf.use14corefonts': False,
-        'font.size': 9,
-        'axes.titlesize': 11,
-        'axes.labelsize': 9,
+        'font.size': 10,
+        'axes.titlesize': 12,
+        'axes.labelsize': 10,
+        'xtick.labelsize': 9,
+        'ytick.labelsize': 9,
+        'legend.fontsize': 9,
     })
     fig, axes = plt.subplots(1, 2, figsize=(9.6, 4.8), constrained_layout=True)
 
