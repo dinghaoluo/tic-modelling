@@ -17,7 +17,7 @@ sys.path.insert(0, str(ROOT))
 from utils.rf_models_v1_2 import BOUNDS
 WIDER = ROOT / 'outputs' / 'undecided_check'
 OUTPUT = ROOT / 'outputs' / 'wider_evidence'
-FIGURES = ROOT / 'figures' / 'wider_evidence'
+FIGURES = ROOT / 'figures'
 
 GROUPS = ['tic_down', 'tic_up', 'time_cell']
 LABELS = {

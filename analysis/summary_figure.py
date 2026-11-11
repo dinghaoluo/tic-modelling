@@ -27,7 +27,7 @@ from utils.rf_models_v1_2 import BOUNDS
 
 #%% constants
 OUTPUT = ROOT / 'outputs' / 'model_comparison'
-FIGURES = ROOT / 'figures' / 'model_comparison'
+FIGURES = ROOT / 'figures'
 FITS = ROOT / 'outputs' / 'fits_v1_2'
 GROUPS = ['tic_down', 'tic_up', 'time_cell']
 LABELS = ['Ramp-down TIC', 'Ramp-up TIC', 'Time cells']
@@ -338,7 +338,7 @@ def make_figure(table, fits, suffix='', wider=False):
             ax.text((left + right + 2) / 2, height + .05 * span, text, ha='center', va='bottom', fontsize=10)
             annotations.append(dict(panel=panel, group=str(row['group']), measure=measure, p=float(row['p for median']), text=text))
         if panel in ['C', 'E']:
-            bracket_top = .22 if panel == 'C' else .41
+            bracket_top = .65 if panel == 'C' else .41
             ax.set_ylim(low, high + bracket_top * span)
         else:
             ax.set_ylim(low, high + .47 * span)
@@ -490,11 +490,9 @@ def wider_main():
     pd.DataFrame(pair_rows).to_csv(OUTPUT / 'summary_parameter_session_pairs_wider.csv', index=False)
     figure_table = table[table['bound subset'].isna() | table['bound subset'].eq('included')]
     annotations = make_figure(figure_table, parameters, suffix='_wider', wider=True)
-    wider_figures = ROOT / 'figures' / 'wider_evidence'
-    wider_figures.mkdir(parents=True, exist_ok=True)
     for extension in ['png', 'pdf']:
         shutil.copy2(FIGURES / f'fig_summary_wider.{extension}',
-                     wider_figures / f'receptive_field_model_summary.{extension}')
+                     FIGURES / f'receptive_field_model_summary.{extension}')
     saved = pd.read_csv(OUTPUT / 'summary_table_wider.csv')
     for annotation in annotations:
         row = saved[(saved.group == annotation['group']) & (saved.measure == annotation['measure'])]

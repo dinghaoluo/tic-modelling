@@ -20,7 +20,7 @@ from utils.rf_models_v1_2 import BOUNDS
 
 WIDER = ROOT / 'outputs' / 'undecided_check'
 OUTPUT = ROOT / 'outputs' / 'wider_evidence'
-FIGURES = ROOT / 'figures' / 'wider_evidence'
+FIGURES = ROOT / 'figures'
 
 LABELS = {
     'tic_down': 'Ramp-down TIC',
