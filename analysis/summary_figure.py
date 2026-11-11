@@ -118,7 +118,8 @@ def parameter_name(group, measure):
 
 
 def bound_percentages(cells, parameter):
-    values = cells.loc[cells[f'{parameter}_at_bound'].astype(bool), parameter].dropna().to_numpy()
+    bound_parameter = 'rise_mu' if parameter == 'peak_reference' else parameter
+    values = cells.loc[cells[f'{bound_parameter}_at_bound'].astype(bool), parameter].dropna().to_numpy()
     if parameter.startswith('rise_') and len(values) and np.nanmedian(values) < 0:
         values = -values
     if not len(values):
@@ -136,9 +137,16 @@ def parameter_values(fits, group, measure, include_bound=False):
     cells = fits[fits.group == group]
     cells = cells if include_bound else cells[~cells[f'{parameter}_at_bound'].astype(bool)]
     cells = cells.loc[cells[parameter].notna()].copy()
-    if group == 'tic_up' and measure == 'peak':
-        cells[parameter] = -cells[parameter]
-    return cells, parameter, 100 * fits.loc[fits.group == group, f'{parameter}_at_bound'].astype(bool).mean()
+    if measure == 'peak':
+        if group == 'tic_up':
+            intervals = {}
+            for session in cells.session.drop_duplicates():
+                data = np.load(ROOT / 'data' / 'binned_v1_3' / f'{session}.npz')
+                intervals[session] = float(np.nanmedian(data['T_k']))
+            cells['peak_reference'] = cells.apply(lambda row: intervals[row.session] - row[parameter], axis=1)
+            parameter = 'peak_reference'
+    bound_parameter = 'rise_mu' if group == 'tic_up' and measure == 'peak' else parameter
+    return cells, parameter, 100 * fits.loc[fits.group == group, f'{bound_parameter}_at_bound'].astype(bool).mean()
 
 
 def paired_parameters(left, right, left_parameter, right_parameter):
@@ -193,7 +201,7 @@ def make_table(fits, primary, polynomial, population, literature):
                    '% cells at bound': bound_percentage,
                    'comparison': 'reference' if group == 'time_cell' else 'Time cell',
                    'source parameter': ('-rise_mu' if group == 'tic_up' and measure == 'peak' else parameter),
-                   'convention': ('-rise_mu, relative to interval end' if group == 'tic_up' and measure == 'peak'
+                   'convention': ('session median T_k minus rise_mu, relative to last lick' if group == 'tic_up' and measure == 'peak'
                                   else 'decay_mu, relative to last lick' if group == 'tic_down' and measure == 'peak'
                                   else '')}
             if group != 'time_cell':
@@ -202,7 +210,7 @@ def make_table(fits, primary, polynomial, population, literature):
                 if not (measure == 'peak' and group == 'tic_up'):
                     row.update({'n sessions': len(pairs), 'p for median': p, 'p for SD': sd_p})
                     pair_rows.extend([dict(group=label, measure=measure,
-                                           convention=('-rise_mu, relative to interval end' if group == 'tic_up' and measure == 'peak'
+                                           convention=('session median T_k minus rise_mu, relative to last lick' if group == 'tic_up' and measure == 'peak'
                                                        else 'decay_mu, relative to last lick' if group == 'tic_down' and measure == 'peak' else ''),
                                            **record) for record in pairs.to_dict('records')])
             if measure == 'ramp rate' and group in ['tic_down', 'tic_up']:
@@ -235,6 +243,20 @@ def make_table(fits, primary, polynomial, population, literature):
         else:
             row['n sessions'] = fits.loc[(fits.group == 'time_cell') & (fits.gaussian_class == 'field'), 'session'].nunique()
         rows.append(row)
+    peak_cells = {}
+    for group in GROUPS:
+        peak_cells[group] = parameter_values(parameters, group, 'peak', include_bound=True)[0]
+    cross_left = peak_cells['tic_down']
+    cross_right = peak_cells['tic_up']
+    cross_pairs = paired_parameters(cross_left, cross_right, parameter_name('tic_down', 'peak'), parameter_name('tic_up', 'peak'))[2]
+    _, cross_p = paired_test(cross_pairs.median_group - cross_pairs.median_time_cell)
+    rows.append({'group': 'Ramp-down TIC vs Ramp-up TIC', 'measure': 'peak', 'n cells': len(cross_left) + len(cross_right),
+                 'n sessions': len(cross_pairs), 'median': np.nan, 'IQR low': np.nan, 'IQR high': np.nan,
+                 'SD': np.nan, 'comparison': 'shared last-lick reference', 'p for median': cross_p,
+                 'convention': 'ramp-down decay_mu; ramp-up session median T_k minus rise_mu'})
+    for record in cross_pairs.to_dict('records'):
+        pair_rows.append(dict(group='Ramp-down TIC vs Ramp-up TIC', measure='peak', bound_subset='included',
+                              convention='ramp-down decay_mu; ramp-up session median T_k minus rise_mu', **record))
     table = pd.DataFrame(rows)
     for column in BASE_COLUMNS:
         if column not in table:
@@ -286,7 +308,8 @@ def make_figure(table, fits, suffix='', wider=False):
         if wider:
             for i, group in enumerate(GROUPS):
                 cells, parameter, _ = parameter_values(fits, group, measure, include_bound=True)
-                bound = cells.loc[cells[f'{parameter}_at_bound'].astype(bool), parameter].to_numpy()
+                bound_parameter = 'rise_mu' if parameter == 'peak_reference' else parameter
+                bound = cells.loc[cells[f'{bound_parameter}_at_bound'].astype(bool), parameter].to_numpy()
                 ax.scatter(i + 1 + np.linspace(-.13, .13, len(bound)), bound, marker='x',
                            color=COLOURS[i], s=22, linewidths=.8, zorder=4)
         ax.set(title=title, ylabel=ylabel)
@@ -300,16 +323,20 @@ def make_figure(table, fits, suffix='', wider=False):
         else:
             low, high = ax.get_ylim()
             span = high - low
-        for i, label in enumerate(LABELS[:2]):
-            if panel == 'C' and label == LABELS[1]:
-                continue
-            row = table[(table.group == label) & (table.measure == measure)].iloc[0]
+        pairs = [(0, 2), (1, 2), (0, 1)] if panel == 'C' else [(0, 2), (1, 2)]
+        for i, (left, right) in enumerate(pairs):
+            if left == 0 and right == 2:
+                row = table[(table.group == LABELS[0]) & (table.measure == measure)].iloc[0]
+            elif left == 1 and right == 2:
+                row = table[(table.group == LABELS[1]) & (table.measure == measure)].iloc[0]
+            else:
+                row = table[(table.group == 'Ramp-down TIC vs Ramp-up TIC') & (table.measure == measure)].iloc[0]
             height = high + (.08 + .19 * i) * span
-            ax.plot([i + 1, i + 1, 3, 3], [height, height + .035 * span, height + .035 * span, height],
+            ax.plot([left + 1, left + 1, right + 1, right + 1], [height, height + .035 * span, height + .035 * span, height],
                     color='black', linewidth=.8)
             text = p_label(row['p for median'])
-            ax.text((i + 1 + 3) / 2, height + .05 * span, text, ha='center', va='bottom', fontsize=10)
-            annotations.append(dict(panel=panel, group=label, measure=measure, p=float(row['p for median']), text=text))
+            ax.text((left + right + 2) / 2, height + .05 * span, text, ha='center', va='bottom', fontsize=10)
+            annotations.append(dict(panel=panel, group=str(row['group']), measure=measure, p=float(row['p for median']), text=text))
         if panel in ['C', 'E']:
             bracket_top = .22 if panel == 'C' else .41
             ax.set_ylim(low, high + bracket_top * span)
@@ -409,16 +436,14 @@ def wider_main():
                 p_ex, sd_ex, pairs_ex = paired_parameters(unbound_left, unbound_right, parameter, right_parameter)
                 if not (measure == 'peak' and group == 'tic_up'):
                     pair_rows.extend([dict(group=label, measure=measure, bound_subset='included',
-                                           convention=('-rise_mu, relative to interval end' if group == 'tic_up' and measure == 'peak'
+                                           convention=('session median T_k minus rise_mu, relative to last lick' if group == 'tic_up' and measure == 'peak'
                                                        else 'decay_mu, relative to last lick' if group == 'tic_down' and measure == 'peak' else ''),
                                            **record) for record in pairs_in.to_dict('records')])
                     pair_rows.extend([dict(group=label, measure=measure, bound_subset='excluded',
-                                           convention=('-rise_mu, relative to interval end' if group == 'tic_up' and measure == 'peak'
+                                           convention=('session median T_k minus rise_mu, relative to last lick' if group == 'tic_up' and measure == 'peak'
                                                        else 'decay_mu, relative to last lick' if group == 'tic_down' and measure == 'peak' else ''),
                                            **record) for record in pairs_ex.to_dict('records')])
             else:
-                p_in = sd_in = p_ex = sd_ex = np.nan
-            if measure == 'peak' and group == 'tic_up':
                 p_in = sd_in = p_ex = sd_ex = np.nan
             for bound_subset, retained, p_value, sd_value in [
                     ('included', all_left, p_in, sd_in),
@@ -428,7 +453,7 @@ def wider_main():
                        **distribution(retained[parameter]), '% lower bound': lower_pct,
                        '% upper bound': upper_pct,
                        'source parameter': ('-rise_mu' if group == 'tic_up' and measure == 'peak' else parameter),
-                       'convention': ('-rise_mu, relative to interval end' if group == 'tic_up' and measure == 'peak'
+                       'convention': ('session median T_k minus rise_mu, relative to last lick' if group == 'tic_up' and measure == 'peak'
                                       else 'decay_mu, relative to last lick' if group == 'tic_down' and measure == 'peak'
                                       else ''),
                        'comparison': 'reference' if group == 'time_cell' else 'Time cell',
@@ -442,6 +467,20 @@ def wider_main():
             rows.append({'group': label, 'measure': f'polynomial degree {degree}', 'n cells': len(cells),
                          'n sessions': cells.session.nunique(), **distribution(cells[f'poly{degree}_trial_mean_ll']),
                          'comparison': 'mean held-out log-likelihood per observed bin, equal trial weights'})
+    peak_cells = {}
+    for group in GROUPS:
+        peak_cells[group] = parameter_values(parameters, group, 'peak', include_bound=True)[0]
+    cross_left = peak_cells['tic_down']
+    cross_right = peak_cells['tic_up']
+    cross_pairs = paired_parameters(cross_left, cross_right, parameter_name('tic_down', 'peak'), parameter_name('tic_up', 'peak'))[2]
+    _, cross_p = paired_test(cross_pairs.median_group - cross_pairs.median_time_cell)
+    rows.append({'group': 'Ramp-down TIC vs Ramp-up TIC', 'measure': 'peak', 'n cells': len(cross_left) + len(cross_right),
+                 'n sessions': len(cross_pairs), 'median': np.nan, 'IQR low': np.nan, 'IQR high': np.nan,
+                 'SD': np.nan, 'comparison': 'shared last-lick reference', 'p for median': cross_p,
+                 'convention': 'ramp-down decay_mu; ramp-up session median T_k minus rise_mu'})
+    for record in cross_pairs.to_dict('records'):
+        pair_rows.append(dict(group='Ramp-down TIC vs Ramp-up TIC', measure='peak', bound_subset='included',
+                              convention='ramp-down decay_mu; ramp-up session median T_k minus rise_mu', **record))
     table = pd.DataFrame(rows)
     for column in BASE_COLUMNS:
         if column not in table:
@@ -459,7 +498,7 @@ def wider_main():
     saved = pd.read_csv(OUTPUT / 'summary_table_wider.csv')
     for annotation in annotations:
         row = saved[(saved.group == annotation['group']) & (saved.measure == annotation['measure'])]
-        if annotation['measure'] in ['peak', 'width', 'ramp rate']:
+        if annotation['measure'] in ['peak', 'width', 'ramp rate'] and annotation['group'] != 'Ramp-down TIC vs Ramp-up TIC':
             row = row[row['bound subset'] == 'included']
         assert len(row) == 1
         np.testing.assert_allclose(row.iloc[0]['p for median'], annotation['p'], rtol=0, atol=1e-14)

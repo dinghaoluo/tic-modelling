@@ -1,0 +1,5 @@
+group,median,p for median,comparison,convention
+Ramp-down TIC,0.341513613021623,0.7197265625,Time cell,"decay_mu, relative to last lick"
+Ramp-up TIC,4.083549208557291,6.103515625e-05,Time cell,"-rise_mu, relative to interval end"
+Time cells,0.4618050392872898,,reference,
+Ramp-down TIC vs Ramp-up TIC,,0.0001220703125,shared last-lick reference,ramp-down decay_mu; ramp-up session median T_k minus rise_mu
