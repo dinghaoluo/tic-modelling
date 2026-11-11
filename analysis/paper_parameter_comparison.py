@@ -1,10 +1,12 @@
 '''
 2026-11-09
+Updated on 11 November 2026
 compare fitted receptive-field parameters with published summaries
 @author: Dinghao Luo
 '''
 
 #%% imports
+import argparse
 from pathlib import Path
 import sys
 
@@ -179,14 +181,15 @@ def make_figure(parameters):
         'ps.fonttype': 42,
         'svg.fonttype': 'none',
         'pdf.use14corefonts': False,
-        'font.size': 10,
-        'axes.titlesize': 12,
-        'axes.labelsize': 10,
-        'xtick.labelsize': 9,
-        'ytick.labelsize': 9,
-        'legend.fontsize': 9,
+        'font.size': 16,
+        'axes.titlesize': 19,
+        'axes.labelsize': 16,
+        'xtick.labelsize': 14,
+        'ytick.labelsize': 14,
+        'legend.fontsize': 14,
     })
-    fig, axes = plt.subplots(1, 2, figsize=(9.6, 4.8), constrained_layout=True)
+    fig, axes = plt.subplots(1, 2, figsize=(11., 5.4), constrained_layout=True)
+    fig.get_layout_engine().set(w_pad=.10, h_pad=.10)
 
     axis = axes[0]
     axis.set_title('Time constant')
@@ -227,7 +230,7 @@ def make_figure(parameters):
 
     for label, axis in zip('AB', axes):
         axis.text(-.12, 1.05, label, transform=axis.transAxes,
-                  fontsize=12, fontweight='bold', va='top')
+                  fontsize=20, fontweight='bold', va='top')
     fig.savefig(FIGURES / 'published_parameter_comparison.png', dpi=300)
     fig.savefig(FIGURES / 'published_parameter_comparison.pdf')
     plt.close(fig)
@@ -310,4 +313,11 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--figure-only', action='store_true',
+                        help='redraw without recomputing statistical summaries')
+    args = parser.parse_args()
+    if args.figure_only:
+        make_figure(load_parameters())
+    else:
+        main()

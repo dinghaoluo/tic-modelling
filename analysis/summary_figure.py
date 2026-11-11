@@ -1,5 +1,5 @@
 '''Created on 5 November 2026
-Updated on 7 November 2026
+Updated on 11 November 2026
 assemble held-out comparisons with the final fitting-window summary mode
 @author: Dinghao Luo
 '''
@@ -10,7 +10,6 @@ import json
 import os
 import sys
 import time
-import shutil
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
@@ -271,11 +270,11 @@ def make_figure(table, fits, suffix='', wider=False):
     import matplotlib.pyplot as plt
     from matplotlib.lines import Line2D
 
-    plt.rcParams.update({'font.size': 10, 'axes.titlesize': 12, 'axes.labelsize': 10,
-                         'xtick.labelsize': 9, 'ytick.labelsize': 9, 'legend.fontsize': 9,
+    plt.rcParams.update({'font.size': 16, 'axes.titlesize': 19, 'axes.labelsize': 16,
+                         'xtick.labelsize': 15, 'ytick.labelsize': 15, 'legend.fontsize': 14,
                          'pdf.fonttype': 42, 'ps.fonttype': 42, 'svg.fonttype': 'none', 'pdf.use14corefonts': False})
-    fig = plt.figure(figsize=(16., 11.))
-    grid = fig.add_gridspec(2, 6, height_ratios=[1., 1.15], hspace=.55, wspace=1.)
+    fig = plt.figure(figsize=(13., 11.))
+    grid = fig.add_gridspec(2, 6, height_ratios=[1., 1.15], hspace=.6, wspace=1.)
     axes = [fig.add_subplot(grid[0, :3]), fig.add_subplot(grid[0, 3:]),
             fig.add_subplot(grid[1, :2]), fig.add_subplot(grid[1, 2:4]), fig.add_subplot(grid[1, 4:])]
     annotations = []
@@ -291,17 +290,18 @@ def make_figure(table, fits, suffix='', wider=False):
         np.testing.assert_allclose(bottom, 100., atol=1e-10)
         for i, (label, row) in enumerate(selected.iterrows()):
             text = p_label(row['p for median'])
-            ax.text(i, 103, text, ha='center', va='bottom', fontsize=11)
+            ax.text(i, 103, text, ha='center', va='bottom', fontsize=15)
             annotations.append(dict(panel=panel, group=label, measure=title, p=float(row['p for median']), text=text))
         ax.set(title=title, ylabel='Cells (%)', ylim=(0, 114), yticks=np.arange(0, 101, 20),
                xticks=range(len(LABELS)), xticklabels=[f'{label}\n(n = {int(selected.loc[label, "n cells"])})' for label in LABELS])
-        ax.legend(frameon=False, loc='lower center', bbox_to_anchor=(.5, 1.10), ncol=3)
+        ax.legend(frameon=False, loc='lower center', bbox_to_anchor=(.5, 1.14), ncol=2, fontsize=14,
+                  handlelength=1., columnspacing=1.)
     for ax, panel, measure, title, ylabel in zip(axes[2:], ['C', 'D', 'E'],
             ['peak', 'width', 'ramp rate'], ['Peak location', 'Gaussian width', 'Time constant'],
             ['Peak location (s)', 'Gaussian width, \u03c3 (s)', 'Time constant, \u03c4 (s)']):
         values = [parameter_values(fits, group, measure, include_bound=wider)[0][parameter_values(fits, group, measure)[1]].to_numpy()
                   for group in GROUPS]
-        boxes = ax.boxplot(values, labels=LABELS, showfliers=False, patch_artist=True,
+        boxes = ax.boxplot(values, tick_labels=LABELS, showfliers=False, patch_artist=True,
                            medianprops={'color': 'black', 'linewidth': 1.5})
         for box, colour in zip(boxes['boxes'], COLOURS):
             box.set(facecolor=colour, alpha=.55)
@@ -311,9 +311,11 @@ def make_figure(table, fits, suffix='', wider=False):
                 bound_parameter = 'rise_mu' if parameter == 'peak_reference' else parameter
                 bound = cells.loc[cells[f'{bound_parameter}_at_bound'].astype(bool), parameter].to_numpy()
                 ax.scatter(i + 1 + np.linspace(-.13, .13, len(bound)), bound, marker='x',
-                           color=COLOURS[i], s=22, linewidths=.8, zorder=4)
+                           color=COLOURS[i], s=40, linewidths=1.2, zorder=4)
         ax.set(title=title, ylabel=ylabel)
-        ax.tick_params(axis='x', rotation=20)
+        ax.set_xticks([1, 2, 3], [label.replace(' TIC', '\nTIC').replace('Time cells', 'Time\ncells')
+                                 for label in LABELS])
+        ax.set_xlim(.65, 3.35)
         if panel in ['C', 'E']:
             data = np.concatenate(values)
             data_low = np.nanmin(data)
@@ -335,27 +337,28 @@ def make_figure(table, fits, suffix='', wider=False):
             ax.plot([left + 1, left + 1, right + 1, right + 1], [height, height + .035 * span, height + .035 * span, height],
                     color='black', linewidth=.8)
             text = p_label(row['p for median'])
-            ax.text((left + right + 2) / 2, height + .05 * span, text, ha='center', va='bottom', fontsize=10)
+            ax.text((left + right + 2) / 2, height + .05 * span, text, ha='center', va='bottom', fontsize=15)
             annotations.append(dict(panel=panel, group=str(row['group']), measure=measure, p=float(row['p for median']), text=text))
         if panel in ['C', 'E']:
-            bracket_top = .65 if panel == 'C' else .41
+            bracket_top = .85 if panel == 'C' else 1.0
             ax.set_ylim(low, high + bracket_top * span)
         else:
-            ax.set_ylim(low, high + .47 * span)
+            ax.set_ylim(low, high + .6 * span)
         if measure == 'width' and wider:
             ax.legend(handles=[Line2D([0], [0], color='black', marker='x', linestyle='none',
-                       label='At bound')], frameon=False, loc='upper left', fontsize=9)
+                       label='At bound')], frameon=False, loc='upper left', fontsize=14)
         if measure == 'ramp rate':
             ax.hlines(2.25, .78, 1.22, colors='black', linewidth=2.0, linestyles='-')
             ax.hlines(1.03, 1.78, 2.22, colors='black', linewidth=2.0, linestyles='--')
             ax.legend(handles=[Line2D([0], [0], color='black', linewidth=2.0, linestyle='-', label='Cao et al. 2024 past'),
                                Line2D([0], [0], color='black', linewidth=2.0, linestyle='--', label='Cao et al. 2024 future')],
-                      frameon=False, loc='upper left', fontsize=9)
+                      frameon=False, loc='upper left', fontsize=14)
     for ax, letter in zip(axes, 'ABCDE'):
-        ax.text(-.12, 1.05, letter, transform=ax.transAxes, fontsize=12, fontweight='bold', ha='right')
-    fig.subplots_adjust(left=.065, right=.98, bottom=.09, top=.84)
-    fig.savefig(FIGURES / f'fig_summary{suffix}.png', dpi=200, bbox_inches='tight', pad_inches=.08)
-    fig.savefig(FIGURES / f'fig_summary{suffix}.pdf', bbox_inches='tight', pad_inches=.08)
+        ax.text(-.12, 1.05, letter, transform=ax.transAxes, fontsize=22, fontweight='bold', ha='right')
+    fig.subplots_adjust(left=.085, right=.98, bottom=.12, top=.84)
+    name = 'receptive_field_model_summary' if wider else f'fig_summary{suffix}'
+    fig.savefig(FIGURES / f'{name}.png', dpi=300)
+    fig.savefig(FIGURES / f'{name}.pdf')
     plt.close(fig)
     return annotations
 
@@ -490,9 +493,6 @@ def wider_main():
     pd.DataFrame(pair_rows).to_csv(OUTPUT / 'summary_parameter_session_pairs_wider.csv', index=False)
     figure_table = table[table['bound subset'].isna() | table['bound subset'].eq('included')]
     annotations = make_figure(figure_table, parameters, suffix='_wider', wider=True)
-    for extension in ['png', 'pdf']:
-        shutil.copy2(FIGURES / f'fig_summary_wider.{extension}',
-                     FIGURES / f'receptive_field_model_summary.{extension}')
     saved = pd.read_csv(OUTPUT / 'summary_table_wider.csv')
     for annotation in annotations:
         row = saved[(saved.group == annotation['group']) & (saved.measure == annotation['measure'])]
@@ -523,5 +523,17 @@ def wider_main():
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--wider', action='store_true')
+    parser.add_argument('--figure-only', action='store_true',
+                        help='redraw saved tables without recomputing statistical summaries')
     args = parser.parse_args()
-    wider_main() if args.wider else main()
+    if args.figure_only:
+        table = pd.read_csv(OUTPUT / ('summary_table_wider.csv' if args.wider else 'summary_table.csv'))
+        if args.wider:
+            parameters = pd.concat([pd.read_csv(path) for path in sorted(
+                (ROOT / 'outputs' / 'undecided_check').glob('*_wider_parameters.csv'))], ignore_index=True)
+            table = table[table['bound subset'].isna() | table['bound subset'].eq('included')]
+        else:
+            parameters = pd.read_csv(FITS / 'fits_all.csv')
+        make_figure(table, parameters, wider=args.wider)
+    else:
+        wider_main() if args.wider else main()

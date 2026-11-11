@@ -1,10 +1,12 @@
 '''
 2026-11-09
+Updated on 11 November 2026
 summarise fitted Gaussian and exponential parameters by cell group
 @author: Dinghao Luo
 '''
 
 #%% imports
+import argparse
 from pathlib import Path
 import sys
 
@@ -166,14 +168,15 @@ def make_figure(parameters, table):
         'ps.fonttype': 42,
         'svg.fonttype': 'none',
         'pdf.use14corefonts': False,
-        'font.size': 10,
-        'axes.titlesize': 12,
-        'axes.labelsize': 10,
-        'xtick.labelsize': 9,
-        'ytick.labelsize': 9,
-        'legend.fontsize': 9,
+        'font.size': 16,
+        'axes.titlesize': 19,
+        'axes.labelsize': 16,
+        'xtick.labelsize': 14,
+        'ytick.labelsize': 14,
+        'legend.fontsize': 14,
     })
-    fig, axes = plt.subplots(1, 2, figsize=(8.6, 4.2), constrained_layout=True)
+    fig, axes = plt.subplots(1, 2, figsize=(11.5, 5.4), constrained_layout=True)
+    fig.get_layout_engine().set(w_pad=.08, h_pad=.08)
     measures = [
         ('Gaussian σ', 'σ (s)'),
         ('Time constant τ', 'τ (s)'),
@@ -211,10 +214,12 @@ def make_figure(parameters, table):
                 tick_labels = [f'{value:g}' for value in tick_positions]
                 tick_labels[-1] = final_label
                 axis.set_xticks(tick_positions, tick_labels)
-    axes[0].legend(frameon=False, fontsize=8, bbox_to_anchor=(1.02, 1.), loc='upper left')
+                axis.get_xticklabels()[-1].set_ha('left')
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, frameon=False, fontsize=14, ncol=3, loc='outside upper center')
     for label, axis in zip('AB', axes):
         axis.text(-.10, 1.06, label, transform=axis.transAxes,
-                  fontsize=12, fontweight='bold', va='top')
+                  fontsize=20, fontweight='bold', va='top')
     fig.savefig(FIGURES / 'parameter_distributions.png', dpi=300)
     fig.savefig(FIGURES / 'parameter_distributions.pdf')
     plt.close(fig)
@@ -235,4 +240,11 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--figure-only', action='store_true',
+                        help='redraw without recomputing statistical summaries')
+    args = parser.parse_args()
+    if args.figure_only:
+        make_figure(load_parameters(), pd.read_csv(OUTPUT / 'wider_parameter_summary.csv'))
+    else:
+        main()
