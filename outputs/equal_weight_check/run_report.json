@@ -1,6 +1,9 @@
 {
-  "seconds": 110.87976410007104,
-  "unsupported": 75,
+  "seconds": 55.13090460002422,
+  "unsupported": 0,
   "convergence_failures": 0,
-  "attempted_fits": 6105
+  "attempted_fits": 2060,
+  "models_refitted": [
+    "rise"
+  ]
 }

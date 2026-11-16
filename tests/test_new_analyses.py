@@ -88,8 +88,19 @@ def test_ten_trial_support_is_on_the_models_coordinate():
     interval = np.full(len(t), 4.)
     x, T, y = retained_coordinates('gaussian', t, interval, np.ones(len(t)))
     np.testing.assert_array_equal(x, [1., 2.])
-    x, T, y = retained_coordinates('rise', t, interval, np.ones(len(t)))
-    np.testing.assert_array_equal(T, [2., 3.])
+    x, T, y = retained_coordinates('rise', t, interval, np.ones(len(t)), np.arange(len(t)))
+    np.testing.assert_allclose(T, [2.025, 3.025])
+
+
+def test_rise_bins_pool_jitter_but_count_distinct_trials():
+    from analysis.equal_weight_check import retained_coordinates
+    trial = np.r_[np.arange(10), np.arange(9), np.zeros(20, dtype=int)]
+    coordinate = np.r_[np.linspace(.101, .149, 10), np.linspace(.201, .249, 9), np.full(20, .31)]
+    values = np.r_[np.arange(10), np.ones(9), np.ones(20)]
+    t, interval, y = retained_coordinates('rise', np.zeros(len(trial)), coordinate, values, trial)
+    np.testing.assert_allclose(t, [0.])
+    np.testing.assert_allclose(interval, [.125])
+    np.testing.assert_allclose(y, [4.5])
 
 
 def test_extra_curve_uses_the_same_averaging_operator():
