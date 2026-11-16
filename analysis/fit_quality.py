@@ -1,4 +1,5 @@
 '''Created on 15 November 2026
+Updated on 16 November 2026: preserve the original figure and add a bump variant
 compare saved fits with trial-averaged activity
 @author: Dinghao Luo
 '''
@@ -41,7 +42,7 @@ def r_squared(observed, prediction):
     return float(1. - np.sum((y - fitted) ** 2) / total)
 
 
-def average_traces(signal, times, intervals, cell, alignment):
+def average_traces(signal, times, intervals, cell, alignment, additional=None):
     '''apply the same observation mask and alignment operator to data and both fits'''
     exponential = 'rise' if cell.group == 'tic_up' else 'decay'
     mask = np.isfinite(signal)
@@ -53,6 +54,11 @@ def average_traces(signal, times, intervals, cell, alignment):
         if not np.isfinite(fitted[mask]).all():
             raise ValueError(f'{cell.session}, neuron {cell.neu_id}: non-finite prediction')
         traces.append(np.where(mask, fitted, np.nan))
+    if additional is not None:
+        for fitted in additional:
+            if fitted.shape != signal.shape or not np.isfinite(fitted[mask]).all():
+                raise ValueError('additional prediction does not cover the observed bins')
+            traces.append(np.where(mask, fitted, np.nan))
     if alignment == 'next_lick':
         step = float(np.median(np.diff(times)))
         axis = np.arange(int(np.ceil((intervals.max() - times.min()) / step)) + 1) * step
@@ -249,5 +255,141 @@ def main():
     make_figure(cells, examples, curves)
 
 
+
+#%% two-exponential extension
+def make_extended_figure(cells, examples, curves, destination):
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    from matplotlib.lines import Line2D
+    from matplotlib.ticker import MaxNLocator
+
+    plt.rcParams.update({'font.size': 16, 'axes.labelsize': 14, 'axes.titlesize': 17,
+                         'xtick.labelsize': 14, 'ytick.labelsize': 14, 'legend.fontsize': 14,
+                         'pdf.fonttype': 42, 'ps.fonttype': 42, 'pdf.use14corefonts': False})
+    fig = plt.figure(figsize=(13., 14.5))
+    grid = fig.add_gridspec(4, 1, height_ratios=[1., 1., 1., 1.15], hspace=.95,
+                            left=.08, right=.985, bottom=.075, top=.92)
+    bottom_grid = grid[3].subgridspec(1, 3, wspace=.65)
+    for row, (group, label, colour) in enumerate(zip(GROUPS, LABELS, COLOURS)):
+        selected = examples[examples.group.eq(group)].sort_values('percentile')
+        example_grid = grid[row].subgridspec(1, 4, wspace=.75)
+        for column, cell in enumerate(selected.itertuples()):
+            axis = fig.add_subplot(example_grid[column])
+            x, observed, gaussian, exponential, bump = curves[(cell.session, int(cell.neu_id), cell.alignment)]
+            if group == 'tic_up':
+                x = -x[::-1]
+                observed, gaussian, exponential, bump = [v[::-1] for v in [observed, gaussian, exponential, bump]]
+            axis.plot(x, observed, color=colour, linewidth=2.)
+            axis.plot(x, gaussian, color='black', linewidth=1.5)
+            axis.plot(x, exponential, color='black', linewidth=1.5, linestyle='--')
+            axis.plot(x, bump, color='black', linewidth=1.8, linestyle=':')
+            axis.set(xlabel='Time relative to\nnext lick (s)' if group == 'tic_up' else 'Time from\nlast lick (s)',
+                     ylabel='dF/F')
+            axis.yaxis.labelpad = 1.
+            axis.xaxis.set_major_locator(MaxNLocator(4))
+            axis.yaxis.set_major_locator(MaxNLocator(3))
+            axis.spines[['top', 'right']].set_visible(False)
+            if column == 0:
+                fig.text(.08, axis.get_position().y1 + .015, label, fontsize=17, color=colour)
+        alignment = 'next_lick' if group == 'tic_up' else 'last_lick'
+        part = cells[cells.group.eq(group) & cells.alignment.eq(alignment)]
+        axis = fig.add_subplot(bottom_grid[row])
+        boxes = axis.boxplot([part[f'r2_{name}'].dropna() for name in ['gaussian', 'exponential', 'bump']],
+                             positions=[1., 2.5, 4.], widths=.55,
+                             tick_labels=['Gaussian', 'Exponential', 'Two-exp.'], patch_artist=True,
+                             medianprops={'color': 'black', 'linewidth': 1.5},
+                             flierprops={'markersize': 3, 'markeredgecolor': colour, 'alpha': .5})
+        for box in boxes['boxes']:
+            box.set(facecolor=colour, alpha=.55)
+        axis.tick_params(axis='x', labelrotation=25)
+        for text in axis.get_xticklabels():
+            text.set_horizontalalignment('right')
+        axis.axhline(0, color='#999999', linewidth=.8)
+        axis.set(title=label, ylabel='Variance explained (R\u00b2)')
+        axis.spines[['top', 'right']].set_visible(False)
+    fig.legend(handles=[Line2D([0], [0], color='#777777', linewidth=2., label='Observed mean (group colour)'),
+                        Line2D([0], [0], color='black', linewidth=1.5, label='Gaussian fit'),
+                        Line2D([0], [0], color='black', linewidth=1.5, linestyle='--', label='Exponential fit'),
+                        Line2D([0], [0], color='black', linewidth=1.8, linestyle=':', label='Two-exponential fit')],
+               loc='upper center', bbox_to_anchor=(.5, .985), frameon=False, ncol=2)
+    fig.savefig(destination.with_suffix('.png'), dpi=300)
+    fig.savefig(destination.with_suffix('.pdf'))
+    plt.close(fig)
+
+
+def extended_main():
+    import json
+    import time
+    from analysis.two_exponential import predict_bump, markdown
+
+    started = time.perf_counter()
+    destination = ROOT / 'outputs' / 'fit_quality_two_exponential'
+    destination.mkdir(parents=True, exist_ok=True)
+    parameters = pd.read_csv(ROOT / 'outputs' / 'two_exponential' / 'parameters.csv')
+    comparison = pd.read_csv(ROOT / 'outputs' / 'two_exponential' / 'comparison_summary.csv')
+    anchoring = comparison[comparison.model_a.eq('last') & comparison.model_b.eq('next') & comparison.scoring.eq('all')]
+    primary = {row.group: 'last' if row.median_session_contrast >= 0 else 'next' for row in anchoring.itertuples()}
+    examples = pd.read_csv(OUTPUT / 'fit_quality_examples.csv')
+    original = pd.read_csv(OUTPUT / 'fit_quality_cells.csv')
+    curves, rows = {}, []
+    for path in sorted(PARAMETERS.glob('*_wider_parameters.csv')):
+        saved = pd.read_csv(path)
+        session = saved.session.iloc[0]
+        with np.load(DATA / f'{session}.npz') as data:
+            signals, times, intervals, ids = [data[k] for k in ['dff', 't', 'T_k', 'neu_id']]
+        indices = {int(neuron): i for i, neuron in enumerate(ids)}
+        bump_parameters = parameters[parameters.session.eq(session)].set_index(['neu_id', 'anchoring'])
+        for cell in saved.itertuples():
+            signal = signals[indices[int(cell.neu_id)]].astype(float)
+            record = bump_parameters.loc[(cell.neu_id, primary[cell.group])]
+            params = record[['a', 'B', 'u', 'tau1', 'tau2']].to_numpy(dtype=float)
+            prediction = predict_bump(times[None, :], intervals[:, None], params, primary[cell.group])
+            for alignment in ['last_lick', 'next_lick'] if cell.group == 'tic_up' else ['last_lick']:
+                trace = average_traces(signal, times, intervals, cell, alignment, additional=[prediction])
+                rows.append(dict(session=session, neu_id=int(cell.neu_id), group=cell.group, alignment=alignment,
+                                 r2_gaussian=r_squared(trace[1], trace[2]), r2_exponential=r_squared(trace[1], trace[3]),
+                                 r2_bump=r_squared(trace[1], trace[4]), bump_anchoring=primary[cell.group]))
+                if ((examples.session == session) & (examples.neu_id == cell.neu_id) & (examples.alignment == alignment)).any():
+                    curves[(session, int(cell.neu_id), alignment)] = trace
+        print(session, 'extended averages complete', flush=True)
+    cells = pd.DataFrame(rows)
+    keys = ['session', 'neu_id', 'group', 'alignment']
+    check = cells.merge(original, on=keys, validate='one_to_one', suffixes=('', '_original'))
+    assert len(check) == len(cells) == len(original)
+    for name in ['gaussian', 'exponential']:
+        np.testing.assert_allclose(check[f'r2_{name}'], check[f'r2_{name}_original'], atol=1e-12, rtol=0)
+    cells.to_csv(destination / 'fit_quality_cells.csv', index=False)
+    examples = examples[keys + ['percentile']].merge(cells, on=keys, validate='one_to_one')
+    examples.to_csv(destination / 'fit_quality_examples.csv', index=False)
+    rows = []
+    for (group, alignment), part in cells.groupby(['group', 'alignment']):
+        for model in ['gaussian', 'exponential', 'bump']:
+            values = part[f'r2_{model}']
+            rows.append(dict(group=group, alignment=alignment, model=model, n=len(part), defined=values.notna().sum(),
+                             median=values.median(), q25=values.quantile(.25), q75=values.quantile(.75),
+                             above_half_pct=100 * (values > .5).mean()))
+    summary = pd.DataFrame(rows)
+    summary.to_csv(destination / 'summary.csv', index=False)
+    text = '# trial-averaged fit quality with the two-exponential bump\n\n'
+    text += 'The original Gaussian and exponential R2 values and the 12 saved example IDs are retained exactly, while the bump uses the same trial-bin mask, interpolation operator and minimum of 10 trials per averaged bin. Both ramp-up alignments are retained in the table; the figure uses next-lick alignment with negative time increasing towards zero. All curves are full-data fits, so these R2 values describe the fitted averages rather than held-out prediction.\n\n'
+    text += markdown(summary) + '\n\n' + markdown(anchoring[['group', 'median_session_contrast', 'wilcoxon_p']])
+    text += '\n\nThe primary anchoring is selected by the sign of the median session contrast: ' + ', '.join(f'{group}: {anchor}' for group, anchor in primary.items()) + '. The down and time-cell anchoring comparisons are not significant, and the time-cell median contrast is numerically close to zero.\n\n'
+    text += markdown(examples) + '\n\nCanvas: 13 by 14.5 inches; smallest font: 14 pt (7 pt at 6.5 inches wide). Original outputs and figures are preserved.\n'
+    make_extended_figure(cells, examples, curves, FIGURES / 'fit_examples_two_exponential')
+    seconds = time.perf_counter() - started
+    text += f'\nWall time: {seconds:.1f} s.\n'
+    (destination / 'summary.md').write_text(text, encoding='utf-8')
+    (destination / 'run_report.json').write_text(json.dumps(dict(seconds=seconds, primary=primary), indent=2))
+    print(text, flush=True)
+
+
 if __name__ == '__main__':
-    main()
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--two-exponential', action='store_true')
+    args = parser.parse_args()
+    if args.two_exponential:
+        extended_main()
+    else:
+        main()

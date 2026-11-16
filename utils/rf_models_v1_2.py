@@ -1,4 +1,5 @@
 '''Created on 5 November 2026
+Updated on 16 November 2026: optional equal coordinate weights and nonlinear bounds
 receptive-field fits allowing onset or centre before the last lick
 @author: Dinghao Luo
 '''
@@ -60,17 +61,28 @@ def compressed_observations(name, t, interval, y, rho=0.):
     return unique, np.zeros(len(unique)), means, counts
 
 
-def fit_field(name, t, interval, y, rho=0., tbar=None, initial=None):
-    '''profile linear coefficients on the coarse grid and through nonlinear refinement'''
+def fit_field(name, t, interval, y, rho=0., tbar=None, initial=None, equal_time_weight=False, bounds=None):
+    '''profile linear coefficients on the coarse grid and through nonlinear refinement
+
+    equal_time_weight gives compressed model-axis coordinates equal weight; the
+    caller chooses their trial support, while bounds changes only the current fit
+    '''
+    if equal_time_weight and rho != 0:
+        raise ValueError('equal time-bin weights require a single time axis')
     if name == 'flat':
         return np.array([np.mean(y)]), True
     t, interval, y, weights = compressed_observations(name, t, interval, y, rho)
+    if equal_time_weight and rho == 0:
+        weights = np.ones(len(weights))
+    lower, upper = BOUNDS[name] if bounds is None else bounds
     key = None
     if rho == 0 and initial is None:
-        key = name, sha1(t.tobytes() + interval.tobytes() + weights.tobytes()).digest()
+        key = name, tuple(lower), tuple(upper), sha1(t.tobytes() + interval.tobytes() + weights.tobytes()).digest()
     cached = _GRID_CACHE.get(key) if key is not None else None
     if cached is None:
-        nonlinear = np.array(list(product(*GRIDS[name])) if initial is None else [initial])
+        grid = GRIDS[name] if bounds is None else (np.linspace(lower[0], upper[0], len(GRIDS[name][0])),
+                                                  np.geomspace(lower[1], upper[1], len(GRIDS[name][1])))
+        nonlinear = np.array(list(product(*grid)) if initial is None else [initial])
         shapes = field_shape(name, t[None, :], interval[None, :], nonlinear.T[:, :, None], rho, tbar)
         means = np.average(shapes, axis=1, weights=weights)
         centred = shapes - means[:, None]
@@ -90,7 +102,6 @@ def fit_field(name, t, interval, y, rho=0., tbar=None, initial=None):
         baseline, amplitude = linear_amplitude(y, shape, weights)
         return np.sqrt(weights) * (baseline + amplitude * shape - y)
 
-    lower, upper = BOUNDS[name]
     result = least_squares(residual, best, bounds=(lower, upper), x_scale='jac')
     shape = field_shape(name, t, interval, result.x, rho, tbar)
     baseline, amplitude = linear_amplitude(y, shape, weights)
