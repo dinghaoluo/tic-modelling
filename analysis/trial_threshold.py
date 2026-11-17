@@ -11,9 +11,7 @@ apply the lick thresholds to single trials and paired trial removals
 import os
 for variable in ['OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS']:
     os.environ[variable] = '1'
-import json
 import sys
-import time
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 import numpy as np
@@ -23,7 +21,6 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
 from rec_list import session_path, SESSIONS_4S
 from utils.matlab_inputs import Fluorescence
-from analysis.two_exponential import markdown
 
 OUTPUT  = ROOT / 'outputs' / 'trial_threshold'
 GROUPS  = ['tic_down','tic_up','time_cell','other','tic_and_time_cell']
@@ -61,8 +58,7 @@ def removed_trials(array,fraction):
 
 
 def session_job(session):
-    started=time.perf_counter()
-    labels=pd.read_csv(ROOT / 'data' / 'labels.csv')
+    labels=pd.read_csv(ROOT / 'outputs' / 'dataset' / 'labels.csv')
     labels=labels[labels.session.eq(session)].sort_values('neu_id')
     folder=session_path(session)
     cells,drops,null,issues=[],[],[],[]
@@ -98,35 +94,31 @@ def session_job(session):
                 for fraction in [.1,.2,.3]:
                     removed=removed_trials(last,fraction)
                     kept=len(last)-len(removed)
-                    l=(last_sum-last[removed].sum(axis=0))/kept
-                    n=(next_sum-next_array[removed].sum(axis=0))/kept
-                    lp,ld=profile_pass(l,True)
-                    npass,nd=profile_pass(n,False)
+                    last_mean=(last_sum-last[removed].sum(axis=0))/kept
+                    next_mean=(next_sum-next_array[removed].sum(axis=0))/kept
+                    lp,ld=profile_pass(last_mean,True)
+                    npass,nd=profile_pass(next_mean,False)
                     drops.append(dict(session=session,neu_id=cell.neu_id,group=cell.group,drop_pct=int(100*fraction),
                                       n_drop=len(removed),passing=bool(lp[0] and npass[0]),defined=bool(ld[0] and nd[0])))
                     removal=np.zeros((REPEATS,len(last)))
                     for repeat in range(REPEATS):
                         removal[repeat,rng.choice(len(last),size=len(removed),replace=False)]=1.
-                    l=(last_sum-removal@last)/kept
-                    n=(next_sum-removal@next_array)/kept
-                    lp,ld=profile_pass(l,True)
-                    npass,nd=profile_pass(n,False)
+                    last_mean=(last_sum-removal@last)/kept
+                    next_mean=(next_sum-removal@next_array)/kept
+                    lp,ld=profile_pass(last_mean,True)
+                    npass,nd=profile_pass(next_mean,False)
                     for repeat in range(REPEATS):
                         null.append(dict(session=session,neu_id=cell.neu_id,group=cell.group,drop_pct=int(100*fraction),
                                          repeat=repeat,passing=bool(lp[repeat] and npass[repeat]),defined=bool(ld[repeat] and nd[repeat])))
-            if len(cells)%50==0:
-                print(session,'threshold cells',len(cells),'seconds',round(time.perf_counter()-started,1),flush=True)
     pd.DataFrame(cells).to_csv(OUTPUT / f'{session}_cells.csv',index=False)
     pd.DataFrame(drops).to_csv(OUTPUT / f'{session}_drops.csv',index=False)
     pd.DataFrame(null).to_csv(OUTPUT / f'{session}_null.csv',index=False)
-    status=dict(session=session,seconds=time.perf_counter()-started,issues=issues)
-    (OUTPUT / f'{session}_status.json').write_text(json.dumps(status,indent=2))
-    print(session,'threshold finished',round(status['seconds'],1),flush=True)
+    status=dict(session=session, issues=issues)
+    pd.DataFrame(issues, columns=['session', 'neu_id', 'issue']).to_csv(OUTPUT / f'{session}_issues.csv', index=False)
     return status
 
 
 def main():
-    started=time.perf_counter()
     OUTPUT.mkdir(parents=True,exist_ok=True)
     with ProcessPoolExecutor(max_workers=3) as pool:
         statuses=list(pool.map(session_job,SESSIONS_4S))
@@ -157,13 +149,6 @@ def main():
     dropping.to_csv(OUTPUT / 'drop_summary.csv',index=False)
     issues=[issue for status in statuses for issue in status['issues']]
     pd.DataFrame(issues,columns=['session','neu_id','issue']).to_csv(OUTPUT / 'issues.csv',index=False)
-    seconds=time.perf_counter()-started
-    text='# single-trial lick thresholds\n\nAll raw trials enter, with the event at sample 1500 and 500 Hz sampling. Each trial uses its cell\'s complete trial-average minimum and maximum, separately for last-lick and next-lick arrays; the threshold differences retain their definition when a trial\'s normalised pre-event mean is zero or negative. The pre-event window is 1250:1500 and the post-event window is 1500:1750.\n\n'
-    text+=markdown(single)+'\n\nThe trial-removal denominator is all saved TICs, including the separately reported TIC/time-cell overlap group. Top trials are ranked only on last-lick samples 1500:1750, with ties in row order; ceil(k times n) paired trial rows are removed from both arrays, and each remaining average is normalised anew. The null uses the same count with 200 independent random removals per cell, with seed 20261116 and paired rows across alignments; each repeat aggregates cells before calculating the reported mean and 95% range.\n\n'
-    text+=markdown(dropping)+f'\n\nInput observations: {len(issues)} (details in issues.csv). The labels include 106 TIC/time-cell overlaps, retained separately. Existing label_stability drop_top uses 1250:1750 and is left intact. Wall time: {seconds:.1f} s. The trials are paired by their source row, as in the original rule; matching row identities across the two source arrays is the weakest input assumption.\n'
-    (OUTPUT / 'summary.md').write_text(text,encoding='utf-8')
-    (OUTPUT / 'run_report.json').write_text(json.dumps(dict(seconds=seconds,issues=len(issues),seed=SEED),indent=2))
-    print(text,flush=True)
 
 
 if __name__=='__main__':

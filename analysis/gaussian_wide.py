@@ -11,9 +11,7 @@ relax the Gaussian width bound without changing held-out trial scoring
 import os
 for variable in ['OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS']:
     os.environ[variable] = '1'
-import json
 import sys
-import time
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 import h5py
@@ -24,7 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
 from utils.rf_models import fit_field, predict, _GRID_CACHE
 from utils.trial_error_scores import trial_mse
-from analysis.two_exponential import contrast_row, signed_test, markdown
+from analysis.two_exponential import contrast_row, signed_test
 
 WIDER  = ROOT / 'outputs' / 'wider_window_fits'
 OUTPUT = ROOT / 'outputs' / 'gaussian_wide'
@@ -32,7 +30,6 @@ BOUNDS = (np.array([-1., .05]), np.array([7., 10.]))
 
 #%% refits
 def session_job(path):
-    started = time.perf_counter()
     parameters = pd.read_csv(path)
     session = parameters.session.iloc[0]
     data = np.load(ROOT / 'data' / 'binned_wider' / f'{session}.npz')
@@ -52,8 +49,8 @@ def session_job(path):
             for stage in [0,1,2,3,4,'full']:
                 train = np.ones(len(folds),dtype=bool) if stage == 'full' else folds != stage
                 trial,bins = np.where(np.isfinite(signal) & train[:,None])
-                params,ok = fit_field('gaussian',data['t'][bins],data['T_k'][trial],signal[trial,bins],bounds=BOUNDS)
-                if not ok:
+                params,success = fit_field('gaussian',data['t'][bins],data['T_k'][trial],signal[trial,bins],bounds=BOUNDS)
+                if not success:
                     failures.append(dict(session=session,neu_id=cell.neu_id,stage=str(stage),issue='least_squares did not converge'))
                 if stage == 'full':
                     full = params
@@ -70,23 +67,21 @@ def session_job(path):
             row.update(zip(['a0','a','mu','sigma'],full))
             rows.append(row)
     pd.DataFrame(rows).to_csv(OUTPUT / f'{session}_cells.csv',index=False)
-    status=dict(session=session,seconds=time.perf_counter()-started,failures=failures)
-    (OUTPUT / f'{session}_status.json').write_text(json.dumps(status,indent=2))
-    print(session,'wide Gaussian finished',round(status['seconds'],1),flush=True)
+    status=dict(session=session, failures=failures)
+    pd.DataFrame([dict(failure, session=session) for failure in failures], columns=['session', 'neu_id', 'stage', 'issue']).to_csv(OUTPUT / f'{session}_failures.csv', index=False)
     _GRID_CACHE.clear()
     return status
 
 
 def main():
-    started=time.perf_counter()
     OUTPUT.mkdir(parents=True,exist_ok=True)
     with ProcessPoolExecutor(max_workers=3) as pool:
         statuses=list(pool.map(session_job,sorted(WIDER.glob('*_wider_parameters.csv'))))
-    summarise(statuses, started)
+    summarise(statuses)
 
 
-def summarise(statuses, started):
-    cells=pd.concat([pd.read_csv(p) for p in sorted(OUTPUT.glob('*_cells.csv'))],ignore_index=True)
+def summarise(statuses):
+    cells=pd.concat([pd.read_csv(path) for path in sorted(OUTPUT.glob('*_cells.csv'))],ignore_index=True)
     cells.to_csv(OUTPUT / 'cells.csv',index=False)
     rows=[]
     for group,part in cells.groupby('group'):
@@ -103,14 +98,8 @@ def summarise(statuses, started):
                              undecided=100*decision.eq('undecided').mean(),median_session_contrast=medians.median(),wilcoxon_p=signed_test(medians)))
     summary=pd.DataFrame(rows)
     summary.to_csv(OUTPUT / 'comparison_summary.csv',index=False)
-    failures=[f for status in statuses for f in status['failures']]
+    failures=[failure for status in statuses for failure in status['failures']]
     pd.DataFrame(failures,columns=['session','neu_id','stage','issue']).to_csv(OUTPUT / 'failures.csv',index=False)
-    seconds=time.perf_counter()-started
-    text='# Gaussian width bound\n\nOnly the Gaussian sigma upper bound changes, from 4 to 10 s; mu remains between -1 and 7 s, and sigma starts at 0.05 s. Every observed training bin enters the exact count-weighted compressed fit, while the five held-out folds, bootstrap trial draws, group exponential predictions and flat residual variance remain the saved ones. Positive contrast favours the Gaussian. Tests are two-sided Wilcoxon tests of the 15 session medians, with raw p-values.\n\n'
-    text+=markdown(summary)+f'\n\nFit failures: {len(failures)}. Wall time: {seconds:.1f} s. Bound flags use absolute tolerance 1e-5. Full-data widths describe the same cells as the held-out contrasts; local nonlinear refinement is the weakest numerical step.\n'
-    (OUTPUT / 'summary.md').write_text(text,encoding='utf-8')
-    (OUTPUT / 'run_report.json').write_text(json.dumps(dict(seconds=seconds,failures=len(failures)),indent=2))
-    print(text,flush=True)
 
 
 if __name__ == '__main__':

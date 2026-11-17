@@ -8,9 +8,7 @@ relate fitted onset to relaxation and time-cell peak to width
 '''
 
 #%% imports
-import json
 import sys
-import time
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -18,47 +16,40 @@ from scipy.stats import spearmanr
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
-from analysis.two_exponential import markdown, signed_test
+from analysis.two_exponential import signed_test
 OUTPUT = ROOT / 'outputs' / 'correlations'
 
 #%% correlations
-def correlation(x,y):
-    if len(x)<3 or np.ptp(x)==0 or np.ptp(y)==0:
+def correlation(first_values,second_values):
+    if len(first_values)<3 or np.ptp(first_values)==0 or np.ptp(second_values)==0:
         return np.nan
-    return float(spearmanr(x,y).statistic)
+    return float(spearmanr(first_values,second_values).statistic)
 
 
 def main():
-    started=time.perf_counter()
     OUTPUT.mkdir(parents=True,exist_ok=True)
-    parameters=pd.concat([pd.read_csv(p) for p in sorted((ROOT / 'outputs' / 'wider_window_fits').glob('*_wider_parameters.csv'))],ignore_index=True)
+    parameters=pd.concat([pd.read_csv(path) for path in sorted((ROOT / 'outputs' / 'wider_window_fits').glob('*_wider_parameters.csv'))],ignore_index=True)
     rows,sessions,retained=[],[],[]
-    for group,x,y in [('tic_down','decay_mu','decay_tau'),('tic_up','rise_mu','rise_tau'),
+    for group,first_parameter,second_parameter in [('tic_down','decay_mu','decay_tau'),('tic_up','rise_mu','rise_tau'),
                       ('time_cell','decay_mu','decay_tau'),('time_cell','gaussian_mu','gaussian_sigma')]:
         all_cells=parameters[parameters.group.eq(group)]
-        cells=all_cells[~all_cells[f'{x}_at_bound'] & ~all_cells[f'{y}_at_bound']].copy()
-        pooled=correlation(cells[x],cells[y])
+        cells=all_cells[~all_cells[f'{first_parameter}_at_bound'] & ~all_cells[f'{second_parameter}_at_bound']].copy()
+        pooled=correlation(cells[first_parameter],cells[second_parameter])
         values=[]
         for session,part in cells.groupby('session'):
-            r=correlation(part[x],part[y])
-            sessions.append(dict(group=group,x=x,y=y,session=session,n=len(part),r=r))
-            if np.isfinite(r):
-                values.append(r)
+            correlation_value=correlation(part[first_parameter],part[second_parameter])
+            sessions.append(dict(group=group,x=first_parameter,y=second_parameter,session=session,n=len(part),r=correlation_value))
+            if np.isfinite(correlation_value):
+                values.append(correlation_value)
         values=np.array(values)
-        rows.append(dict(group=group,x=x,y=y,n=len(cells),excluded=len(all_cells)-len(cells),
+        rows.append(dict(group=group,x=first_parameter,y=second_parameter,n=len(cells),excluded=len(all_cells)-len(cells),
                          pooled_r=pooled,sessions_defined=len(values),median_session_r=np.median(values),
                          session_r_q25=np.quantile(values,.25),session_r_q75=np.quantile(values,.75),wilcoxon_p=signed_test(values)))
-        retained.append(cells[['session','neu_id','group',x,y]].assign(pair=f'{x}_vs_{y}'))
+        retained.append(cells[['session','neu_id','group',first_parameter,second_parameter]].assign(pair=f'{first_parameter}_vs_{second_parameter}'))
     summary=pd.DataFrame(rows)
     summary.to_csv(OUTPUT / 'correlation_summary.csv',index=False)
     pd.DataFrame(sessions).to_csv(OUTPUT / 'session_correlations.csv',index=False)
     pd.concat(retained,ignore_index=True).to_csv(OUTPUT / 'retained_cells.csv',index=False)
-    seconds=time.perf_counter()-started
-    text='# latency, relaxation and peak width\n\nBoth parameters must be away from either saved bound; exclusion uses the wider-window bound flags, with no refitting. Spearman correlations are computed across retained cells and separately within each session; raw two-sided Wilcoxon p-values test the defined session correlations against zero. Rise mu retains its saved time-before-next-lick definition. IQRs describe variation between sessions, not uncertainty in a pooled coefficient.\n\n'
-    text+=markdown(summary)+f'\n\nWall time: {seconds:.1f} s. Excluding bounded cells can alter the sampled relationship; the pooled and session estimates are reported together so a heavily represented session can be recognised.\n'
-    (OUTPUT / 'summary.md').write_text(text,encoding='utf-8')
-    (OUTPUT / 'run_report.json').write_text(json.dumps(dict(seconds=seconds), indent=2))
-    print(text,flush=True)
 
 
 if __name__=='__main__':
