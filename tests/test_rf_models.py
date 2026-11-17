@@ -1,5 +1,9 @@
-'''Created on 4 November 2026
-noiseless parameter recovery for the specified receptive-field shapes
+# -*- coding: utf-8 -*-
+'''
+Created on Wed Nov  4 23:25:17 2026
+
+noiseless parameter recovery for the fitted receptive-field shapes
+
 @author: Dinghao Luo
 '''
 

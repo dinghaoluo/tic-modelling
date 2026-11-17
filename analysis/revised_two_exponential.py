@@ -1,5 +1,9 @@
-'''Created on 17 November 2026
+# -*- coding: utf-8 -*-
+'''
+Created on Tue Nov 17 12:45:08 2026
+
 compare revised bumps and plain exponentials in the saved wider-window folds
+
 @author: Dinghao Luo
 '''
 

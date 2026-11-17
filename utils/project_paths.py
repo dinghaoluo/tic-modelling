@@ -1,13 +1,8 @@
 # -*- coding: utf-8 -*-
 '''
-Created on 4 November 2026
+Created on Wed Nov  4 16:26:12 2026
 
 project path stems for the TIC receptive-field repository
-
-Raw recordings and the tables behind the manuscript figures stay on lab
-storage and are only read from; generated data, figures, and outputs resolve
-inside this repository. Edit the raw-input roots below when using the data
-outside the MPFI network-drive layout.
 
 @author: Dinghao Luo
 '''

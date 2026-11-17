@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 '''
-Created on 4 November 2026
+Created on Wed Nov  4 16:26:12 2026
 
 recording lists for the 4-s delay imaging sessions
 

@@ -1,5 +1,9 @@
-'''Created on 4 November 2026
+# -*- coding: utf-8 -*-
+'''
+Created on Wed Nov  4 23:46:13 2026
+
 check MATLAB trial numbering and strict validity thresholds
+
 @author: Dinghao Luo
 '''
 

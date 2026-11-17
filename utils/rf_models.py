@@ -1,6 +1,9 @@
-'''Created on 5 November 2026
-Updated on 16 November 2026: optional equal coordinate weights and nonlinear bounds
+# -*- coding: utf-8 -*-
+'''
+Created on Thu Nov  5 11:24:40 2026
+
 receptive-field fits allowing onset or centre before the last lick
+
 @author: Dinghao Luo
 '''
 

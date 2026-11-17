@@ -1,5 +1,9 @@
-'''Created on 5 November 2026
+# -*- coding: utf-8 -*-
+'''
+Created on Thu Nov  5 17:47:53 2026
+
 check the sign and equal-trial weighting of saved-prediction likelihood contrasts
+
 @author: Dinghao Luo
 '''
 

@@ -1,5 +1,9 @@
-'''Created on 16 November 2026
+# -*- coding: utf-8 -*-
+'''
+Created on Mon Nov 16 13:12:22 2026
+
 relax the Gaussian width bound without changing held-out trial scoring
+
 @author: Dinghao Luo
 '''
 

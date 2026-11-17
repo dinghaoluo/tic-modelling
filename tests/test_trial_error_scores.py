@@ -1,5 +1,9 @@
-'''Created on 5 November 2026
+# -*- coding: utf-8 -*-
+'''
+Created on Thu Nov  5 11:24:40 2026
+
 check negative centres, paired error signs and first-lick bin membership
+
 @author: Dinghao Luo
 '''
 

@@ -1,7 +1,9 @@
+# -*- coding: utf-8 -*-
 '''
-2026-11-09
-Updated on 11 November 2026
+Created on Sat Nov  7 12:50:08 2026
+
 summarise fitted Gaussian and exponential parameters by cell group
+
 @author: Dinghao Luo
 '''
 

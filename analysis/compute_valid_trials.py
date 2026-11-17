@@ -1,5 +1,9 @@
-'''Created on 4 November 2026
+# -*- coding: utf-8 -*-
+'''
+Created on Wed Nov  4 23:46:13 2026
+
 recompute Kori's adjacent-trial validity rule from cue-aligned lick indices
+
 @author: Dinghao Luo
 '''
 

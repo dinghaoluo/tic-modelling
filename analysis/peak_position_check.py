@@ -1,5 +1,9 @@
-'''Created on 5 November 2026
+# -*- coding: utf-8 -*-
+'''
+Created on Thu Nov  5 19:15:36 2026
+
 sort Gaussian peaks on one trial half and compare held-out shapes on the other
+
 @author: Dinghao Luo
 '''
 

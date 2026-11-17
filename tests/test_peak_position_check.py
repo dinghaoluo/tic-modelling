@@ -1,5 +1,9 @@
-'''Created on 5 November 2026
+# -*- coding: utf-8 -*-
+'''
+Created on Thu Nov  5 19:15:36 2026
+
 check that peak sorting never evaluates the trials used for classification
+
 @author: Dinghao Luo
 '''
 

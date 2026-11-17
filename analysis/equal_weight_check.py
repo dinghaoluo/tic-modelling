@@ -1,6 +1,9 @@
-'''Created on 16 November 2026
-Updated on 16 November 2026: pool the rise axis into 50 ms bins
+# -*- coding: utf-8 -*-
+'''
+Created on Mon Nov 16 13:12:22 2026
+
 check how equal time-bin weights change the saved field parameters
+
 @author: Dinghao Luo
 '''
 

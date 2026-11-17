@@ -1,5 +1,9 @@
-'''Created on 17 November 2026
+# -*- coding: utf-8 -*-
+'''
+Created on Tue Nov 17 12:45:08 2026
+
 check revised bump endpoints, clipped onsets and plain exponential mirroring
+
 @author: Dinghao Luo
 '''
 

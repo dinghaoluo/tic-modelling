@@ -1,6 +1,9 @@
-'''Created on 15 November 2026
-Updated on 16 November 2026: preserve the original figure and add a bump variant
+# -*- coding: utf-8 -*-
+'''
+Created on Sun Nov 15 10:52:56 2026
+
 compare saved fits with trial-averaged activity
+
 @author: Dinghao Luo
 '''
 

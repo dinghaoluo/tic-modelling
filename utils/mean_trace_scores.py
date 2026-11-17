@@ -1,5 +1,9 @@
-'''Created on 5 November 2026
+# -*- coding: utf-8 -*-
+'''
+Created on Thu Nov  5 10:01:06 2026
+
 score out-of-fold trial predictions after averaging the same observed bins
+
 @author: Dinghao Luo
 '''
 

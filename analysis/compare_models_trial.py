@@ -1,5 +1,9 @@
-'''Created on 5 November 2026
+# -*- coding: utf-8 -*-
+'''
+Created on Thu Nov  5 17:47:53 2026
+
 compare saved single-trial predictions with one flat-residual variance per cell
+
 @author: Dinghao Luo
 '''
 

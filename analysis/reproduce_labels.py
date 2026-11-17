@@ -1,5 +1,9 @@
-'''Created on 5 November 2026
-reproduce the specified lick ratios without replacing source-table labels
+# -*- coding: utf-8 -*-
+'''
+Created on Thu Nov  5 10:01:06 2026
+
+reproduce the fitted lick ratios without replacing source-table labels
+
 @author: Dinghao Luo
 '''
 

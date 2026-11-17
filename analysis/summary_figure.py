@@ -1,6 +1,9 @@
-'''Created on 5 November 2026
-Updated on 11 November 2026
-assemble held-out comparisons with the final fitting-window summary mode
+# -*- coding: utf-8 -*-
+'''
+Created on Thu Nov  5 18:05:57 2026
+
+summarise held-out shapes and wider-window field parameters
+
 @author: Dinghao Luo
 '''
 

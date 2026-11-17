@@ -1,5 +1,9 @@
-'''Created on 16 November 2026
+# -*- coding: utf-8 -*-
+'''
+Created on Mon Nov 16 16:48:27 2026
+
 plot saved two-exponential model comparisons
+
 @author: Dinghao Luo
 '''
 

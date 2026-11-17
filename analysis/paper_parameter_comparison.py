@@ -1,7 +1,9 @@
+# -*- coding: utf-8 -*-
 '''
-2026-11-09
-Updated on 11 November 2026
+Created on Sat Nov  7 20:13:25 2026
+
 compare fitted receptive-field parameters with published summaries
+
 @author: Dinghao Luo
 '''
 

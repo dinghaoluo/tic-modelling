@@ -1,5 +1,9 @@
-'''Created on 4 November 2026
+# -*- coding: utf-8 -*-
+'''
+Created on Wed Nov  4 23:25:17 2026
+
 read aligned fluorescence arrays without changing their MATLAB sources
+
 @author: Dinghao Luo
 '''
 

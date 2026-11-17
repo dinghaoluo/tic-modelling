@@ -1,5 +1,9 @@
-'''Created on 5 November 2026
+# -*- coding: utf-8 -*-
+'''
+Created on Thu Nov  5 16:41:55 2026
+
 check trial splits, drop-top pairing and binned trace reliability
+
 @author: Dinghao Luo
 '''
 

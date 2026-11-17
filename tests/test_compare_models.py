@@ -1,5 +1,9 @@
-'''Created on 5 November 2026
+# -*- coding: utf-8 -*-
+'''
+Created on Thu Nov  5 17:41:02 2026
+
 check that likelihood contrasts choose the better exponential per cell
+
 @author: Dinghao Luo
 '''
 

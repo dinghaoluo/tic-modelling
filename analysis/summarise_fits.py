@@ -1,5 +1,9 @@
-'''Created on 5 November 2026
-write the requested paired-trial summaries and specified restricted comparisons
+# -*- coding: utf-8 -*-
+'''
+Created on Thu Nov  5 11:24:40 2026
+
+summarise paired-trial scores and restricted cell comparisons
+
 @author: Dinghao Luo
 '''
 

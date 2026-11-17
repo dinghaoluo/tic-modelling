@@ -1,5 +1,9 @@
-'''Created on 5 November 2026
+# -*- coding: utf-8 -*-
+'''
+Created on Thu Nov  5 18:24:50 2026
+
 compare the current interval window with an added pre-last-lick period
+
 @author: Dinghao Luo
 '''
 

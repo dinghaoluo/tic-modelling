@@ -1,5 +1,9 @@
-'''Created on 5 November 2026
+# -*- coding: utf-8 -*-
+'''
+Created on Thu Nov  5 11:24:40 2026
+
 paired trial errors and mean-trace fits in both lick alignments
+
 @author: Dinghao Luo
 '''
 

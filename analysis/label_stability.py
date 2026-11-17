@@ -1,5 +1,9 @@
-'''Created on 5 November 2026
+# -*- coding: utf-8 -*-
+'''
+Created on Thu Nov  5 16:41:55 2026
+
 check tic label stability and split-half traces without fitting models
+
 @author: Dinghao Luo
 '''
 

@@ -1,5 +1,9 @@
-'''Created on 15 November 2026
+# -*- coding: utf-8 -*-
+'''
+Created on Sun Nov 15 10:52:56 2026
+
 check variance explained against the observed mean
+
 @author: Dinghao Luo
 '''
 
