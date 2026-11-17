@@ -8,9 +8,7 @@ build trial-binned fluorescence and source-table cell labels
 '''
 
 #%% imports
-import json
 import sys
-import time
 from pathlib import Path
 
 import matio
@@ -41,30 +39,24 @@ def source_labels():
                         'neu_id': np.asarray(profile['neu_id']).ravel().astype(int)})
     clusters = matio.load_from_mat(str(TABLES_ROOT / 'PAC_Kmeans_noPCA_start_2' / 'KmeansResults.mat'))['clusters']
     idx = clusters['idx'][0, 0].ravel().astype(int)
-    x = clusters['X'][0, 0]
-    if len(idx) != len(ids) or len(idx) != len(x):
+    profiles = clusters['X'][0, 0]
+    if len(idx) != len(ids) or len(idx) != len(profiles):
         raise ValueError('cluster labels and profile rows differ')
     if not np.array_equal(tic.to_numpy(), ids.to_numpy()):
         raise ValueError('TIC table and profile identifiers do not match in row order')
     # X contains the non-negative time profiles, unlike the centred centroids
-    if np.any(x < 0) or np.any(x.sum(axis=1) <= 0) or len(np.unique(idx)) != 2:
-        raise ValueError('cluster profiles cannot supply the requested centre of mass')
-    com = (x * np.arange(x.shape[1])).sum(axis=1) / x.sum(axis=1)
-    means = {int(k): float(np.mean(com[idx == k])) for k in np.unique(idx)}
+    if np.any(profiles < 0) or np.any(profiles.sum(axis=1) <= 0) or len(np.unique(idx)) != 2:
+        raise ValueError('cluster profiles cannot supply the profile centre of mass')
+    com = (profiles * np.arange(profiles.shape[1])).sum(axis=1) / profiles.sum(axis=1)
+    means = {int(key): float(np.mean(com[idx == key])) for key in np.unique(idx)}
     down = min(means, key=means.get)
     tic['cluster'] = np.where(idx == down, 'down', 'up')
     OUTPUT.mkdir(parents=True, exist_ok=True)
-    (OUTPUT / 'cluster_check.json').write_text(json.dumps({
-        'cluster_rows': len(idx), 'profile_rows': len(ids),
-        'mean_com_sample_index': means, 'down_cluster': int(down),
-        'tic_ratio_rows': len(ratios),
-        }, indent=2))
     return tic
 
 
 #%% dataset
 def main():
-    started = time.perf_counter()
     OUTPUT.mkdir(parents=True, exist_ok=True)
     (ROOT / 'data' / 'binned').mkdir(parents=True, exist_ok=True)
     tic = source_labels()
@@ -95,8 +87,8 @@ def main():
             for neuron in range(reader.n_neurons):
                 if reader.shape(neuron) != (rows, samples):
                     raise ValueError(f'{session}: inconsistent neuron array dimensions')
-                arr = reader.read(neuron, 1500, 5000)
-                means = arr[valid].reshape(len(valid), 140, 25).mean(axis=2)
+                raw_dff = reader.read(neuron, 1500, 5000)
+                means = raw_dff[valid].reshape(len(valid), 140, 25).mean(axis=2)
                 means[BIN_END[None, :] > interval[:, None] + 1e-12] = np.nan
                 binned[neuron] = means
                 neu_id = neuron + 1
@@ -112,16 +104,16 @@ def main():
                 for offset in drops:
                     paired = valid + 1 + offset
                     common = (valid > 0) & (valid < rows - 1)
-                    r = valid[common]
+                    trial_indices = valid[common]
                     end = first[paired[common]]
                     keep = (end >= .5) & (end <= 6.498)
-                    r, end = r[keep], end[keep]
-                    if not len(r):
+                    trial_indices, end = trial_indices[keep], end[keep]
+                    if not len(trial_indices):
                         continue
                     before = (sample_time[None, :] >= end[:, None] - .5) & (sample_time[None, :] < end[:, None])
                     after = (sample_time[None, :] >= end[:, None]) & (sample_time[None, :] < end[:, None] + .5)
-                    before_mean = np.sum(np.where(before, arr[r], 0.), axis=1) / before.sum(axis=1)
-                    after_mean = np.sum(np.where(after, arr[r], 0.), axis=1) / after.sum(axis=1)
+                    before_mean = np.sum(np.where(before, raw_dff[trial_indices], 0.), axis=1) / before.sum(axis=1)
+                    after_mean = np.sum(np.where(after, raw_dff[trial_indices], 0.), axis=1) / after.sum(axis=1)
                     drops[offset].extend((before_mean - after_mean).tolist())
             np.savez(ROOT / 'data' / 'binned' / f'{session}.npz', dff=binned,
                      T_k=interval, trial_rows=valid, t=BIN_TIME, bin_end=BIN_END)
@@ -138,10 +130,6 @@ def main():
         pd.DataFrame(alignment).to_csv(OUTPUT / 'alignment_checks.csv', index=False)
     pd.DataFrame(labels).to_csv(OUTPUT / 'labels.csv', index=False)
     passed = sum(row['offset_zero_largest'] for row in alignment) > len(alignment) / 2
-    (OUTPUT / 'dataset_status.json').write_text(json.dumps({
-        'alignment_passed': passed, 'seconds': time.perf_counter() - started,
-        'alignment_definition': 'mean raw dF/F before minus after first lick across TIC neuron-trials; full half-second windows',
-        }, indent=2))
     if not passed:
         raise ValueError('offset zero does not give the largest drop in most sessions; stop before fitting')
 

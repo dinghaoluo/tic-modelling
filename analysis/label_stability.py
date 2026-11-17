@@ -8,10 +8,8 @@ check tic label stability and split-half traces without fitting models
 '''
 
 #%% imports
-import json
 import os
 import sys
-import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
@@ -37,12 +35,12 @@ def lick_ratio(profile):
         return float(profile[1500:1750].mean() / profile[1250:1500].mean())
 
 
-def trial_masks(arr):
+def trial_masks(raw_dff):
     '''odd and even refer to one-based row numbers; equal top scores keep row order'''
-    n_trials = len(arr)
+    n_trials = len(raw_dff)
     odd = np.arange(n_trials) % 2 == 0
     n_drop = int(np.ceil(.1 * n_trials))
-    score = arr[:, 1250:1750].mean(axis=1)
+    score = raw_dff[:, 1250:1750].mean(axis=1)
     removed = np.argsort(-score, kind='stable')[:n_drop]
     kept = np.ones(n_trials, dtype=bool)
     kept[removed] = False
@@ -62,8 +60,7 @@ def split_correlation(odd_profile, even_profile):
 
 #%% session work
 def run_session(session):
-    started = time.perf_counter()
-    labels = pd.read_csv(ROOT / 'data' / 'labels.csv')
+    labels = pd.read_csv(ROOT / 'outputs' / 'dataset' / 'labels.csv')
     labels = labels[labels.session == session].sort_values('neu_id').reset_index(drop=True)
     folder = session_path(session)
     rows, exceptions, removed_rows = [], [], []
@@ -74,25 +71,25 @@ def run_session(session):
         formats = dict(session=session, last_format=last.format, first_format=first.format,
                        neurons=last.n_neurons)
         for neuron in range(last.n_neurons):
-            arr = last.read(neuron)
-            if arr.shape[1] != 5000 or first.shape(neuron) != arr.shape or len(arr) < 2:
+            raw_dff = last.read(neuron)
+            if raw_dff.shape[1] != 5000 or first.shape(neuron) != raw_dff.shape or len(raw_dff) < 2:
                 raise ValueError(f'{session}, neuron {neuron + 1}: inconsistent arrays or insufficient rows')
-            masks, removed = trial_masks(arr)
+            masks, removed = trial_masks(raw_dff)
             row = labels.iloc[neuron].to_dict()
-            row.update(n_trials=len(arr), n_odd=int(masks['odd'].sum()),
+            row.update(n_trials=len(raw_dff), n_odd=int(masks['odd'].sum()),
                        n_even=int(masks['even'].sum()), n_drop_top=len(removed),
                        n_after_drop_top=int(masks['drop_top'].sum()))
             removed_rows.append(removed + 1)
-            profiles = {name: arr[mask].mean(axis=0) for name, mask in masks.items()}
+            profiles = {name: raw_dff[mask].mean(axis=0) for name, mask in masks.items()}
             row['split_half_r'] = split_correlation(profiles['odd'], profiles['even'])
             if not np.isfinite(row['split_half_r']):
                 exceptions.append(dict(neu_id=neuron + 1, issue='undefined split-half correlation'))
             for name, profile in profiles.items():
                 row[f'{name}_ratio_last'] = lick_ratio(profile)
-            del arr, profiles
-            arr = first.read(neuron)
+            del raw_dff, profiles
+            raw_dff = first.read(neuron)
             for name, mask in masks.items():
-                row[f'{name}_ratio_first'] = lick_ratio(arr[mask].mean(axis=0))
+                row[f'{name}_ratio_first'] = lick_ratio(raw_dff[mask].mean(axis=0))
                 row[f'pass_{name}'] = row[f'{name}_ratio_last'] > 1.5 and row[f'{name}_ratio_first'] < 2 / 3
                 for alignment in ['last', 'first']:
                     if not np.isfinite(row[f'{name}_ratio_{alignment}']):
@@ -102,9 +99,8 @@ def run_session(session):
             rows.append(row)
     pd.DataFrame(rows).to_csv(OUTPUT / f'{session}.csv', index=False)
     np.savez(OUTPUT / f'{session}_dropped_rows.npz', **{str(i + 1): value for i, value in enumerate(removed_rows)})
-    status = dict(**formats, seconds=time.perf_counter() - started, exceptions=exceptions)
-    (OUTPUT / f'{session}_status.json').write_text(json.dumps(status, indent=2))
-    print(session, 'complete in seconds', status['seconds'], flush=True)
+    status = dict(**formats, exceptions=exceptions)
+    pd.DataFrame(exceptions, columns=['neu_id', 'subset', 'alignment', 'issue']).to_csv(OUTPUT / f'{session}_exceptions.csv', index=False)
     return status
 
 
@@ -133,7 +129,7 @@ def correlation_row(cells):
             number(np.subtract(*np.percentile(values, [75, 25])) if len(values) else np.nan)]
 
 
-def write_summary(frame):
+def write_tables(frame):
     rows = []
     for group in GROUPS:
         cells = frame[frame.group == group]
@@ -172,12 +168,7 @@ def write_summary(frame):
 
 #%% main
 def main():
-    started = time.perf_counter()
     OUTPUT.mkdir(parents=True, exist_ok=True)
-    prior = {str(path.relative_to(ROOT)): [path.stat().st_size, path.stat().st_mtime_ns]
-             for folder in ['outputs', 'figures'] for path in (ROOT / folder).rglob('*')
-             if path.is_file() and OUTPUT not in path.parents}
-    (OUTPUT / 'earlier_files_before.json').write_text(json.dumps(prior, indent=2))
     workers = min(os.cpu_count() or 1, len(SESSIONS_4S))
     print('session workers:', workers, flush=True)
     statuses = []
@@ -186,27 +177,14 @@ def main():
         for future in as_completed(pending):
             statuses.append(future.result())
     frame = pd.concat([pd.read_csv(OUTPUT / f'{session}.csv') for session in SESSIONS_4S], ignore_index=True)
-    labels = pd.read_csv(ROOT / 'data' / 'labels.csv')
+    labels = pd.read_csv(ROOT / 'outputs' / 'dataset' / 'labels.csv')
     pd.testing.assert_frame_equal(frame[labels.columns].fillna(''), labels.fillna(''), check_dtype=False)
     fits = pd.read_csv(ROOT / 'outputs' / 'fits' / 'fits_all.csv', usecols=['session', 'neu_id', 'beats_flat'])
     frame = frame.merge(fits, on=['session', 'neu_id'], how='left', validate='one_to_one')
     if frame.beats_flat.isna().any():
         raise ValueError('beats_flat missing for labelled neurons')
     frame.to_csv(OUTPUT / 'cells.csv', index=False)
-    write_summary(frame)
-    after = {str(path.relative_to(ROOT)): [path.stat().st_size, path.stat().st_mtime_ns]
-             for folder in ['outputs', 'figures'] for path in (ROOT / folder).rglob('*')
-             if path.is_file() and OUTPUT not in path.parents}
-    if after != prior:
-        raise ValueError('earlier output file metadata changed')
-    report = dict(seconds=time.perf_counter() - started, workers=workers, neurons=len(frame),
-                  interpreter=sys.executable, earlier_files_unchanged=True,
-                  odd_rows='one-based rows 1, 3, 5, ...; even rows 2, 4, 6, ...',
-                  drop_top='ceil(0.1 * trials); last-lick mean over -0.5 <= t < 0.5; same retained rows in both alignments; ties by row order',
-                  reliability='Pearson of unnormalised odd/even means over 0 <= t < 4 in 50 ms bins',
-                  sessions=statuses)
-    (OUTPUT / 'run_report.json').write_text(json.dumps(report, indent=2))
-    print('complete in seconds:', report['seconds'], flush=True)
+    write_tables(frame)
 
 
 if __name__ == '__main__':

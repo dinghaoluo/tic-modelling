@@ -9,9 +9,7 @@ fit single-trial fields and compare paired out-of-fold trial errors
 
 #%% imports
 import argparse
-import json
 import sys
-import time
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
@@ -36,7 +34,7 @@ SEED = 20261104
 def cv_prediction(name, signal, times, intervals, folds, scaling=False):
     '''fit observed single-trial bins, never a trial-averaged training trace'''
     trial, bins = np.where(np.isfinite(signal))
-    y, t, interval = signal[trial, bins].astype(float), times[bins], intervals[trial]
+    observed_values, bin_times, interval = signal[trial, bins].astype(float), times[bins], intervals[trial]
     held = np.full(signal.shape, np.nan)
     failures = []
     for fold in range(5):
@@ -44,29 +42,28 @@ def cv_prediction(name, signal, times, intervals, folds, scaling=False):
         test = ~train
         if name.startswith('poly'):
             degree = int(name[-1])
-            design = np.polynomial.polynomial.polyvander(t / 7, degree)
-            params = np.linalg.lstsq(design[train], y[train], rcond=None)[0]
+            design = np.polynomial.polynomial.polyvander(bin_times / 7, degree)
+            params = np.linalg.lstsq(design[train], observed_values[train], rcond=None)[0]
             prediction = design[test] @ params
-            ok = True
+            success = True
         else:
             rho = 0.
             if scaling:
-                params, rho, ok = fit_scaling(name, t[train], interval[train], y[train], intervals.mean())
+                params, rho, success = fit_scaling(name, bin_times[train], interval[train], observed_values[train], intervals.mean())
             else:
-                params, ok = fit_field(name, t[train], interval[train], y[train])
-            prediction = predict(name, t[test], interval[test], params, rho, intervals.mean())
+                params, success = fit_field(name, bin_times[train], interval[train], observed_values[train])
+            prediction = predict(name, bin_times[test], interval[test], params, rho, intervals.mean())
         held[trial[test], bins[test]] = prediction
-        if not ok:
+        if not success:
             failures.append(dict(model=name, fold=fold, stage='scaled_cv' if scaling else 'cv'))
     return held, failures
 
 
 #%% session fits
 def fit_session(session):
-    started = time.perf_counter()
     data = np.load(DATA / f'{session}.npz')
     dff, intervals, times = data['dff'], data['T_k'], data['t']
-    labels = pd.read_csv(OUTPUT / 'labels.csv').query('session == @session').reset_index(drop=True)
+    labels = pd.read_csv(ROOT / 'outputs' / 'dataset' / 'labels.csv').query('session == @session').reset_index(drop=True)
     n_trials = len(intervals)
     if n_trials < 10:
         raise ValueError(f'{session}: fewer than ten kept trials')
@@ -110,10 +107,10 @@ def fit_session(session):
             row['best_shape_held_r2'] = row[f'{best}_held_r2_last']
             row['best_shape_held_r2_first'] = row[f'{best}_held_r2_first']
             trial, bins = np.where(np.isfinite(signal))
-            y, t, interval = signal[trial, bins].astype(float), times[bins], intervals[trial]
+            observed_values, bin_times, interval = signal[trial, bins].astype(float), times[bins], intervals[trial]
             for name in SHAPES:
-                params, ok = fit_field(name, t, interval, y)
-                if not ok:
+                params, success = fit_field(name, bin_times, interval, observed_values)
+                if not success:
                     cell_failures.append(dict(model=name, stage='full'))
                 names = ['a0', 'a', 'mu', 'sigma' if name == 'gaussian' else 'tau']
                 for param_name, value in zip(names, params):
@@ -127,14 +124,14 @@ def fit_session(session):
                                      and row['gaussian_mu'] + row['gaussian_sigma'] < np.median(intervals)
                                      else 'monotonic')
             row['session_median_T_k'] = float(np.median(intervals))
-            degree = max(range(1, 5), key=lambda k: row[f'poly{k}_held_r2'])
+            degree = max(range(1, 5), key=lambda degree: row[f'poly{degree}_held_r2'])
             row['best_poly_degree'] = degree
             row['best_poly_held_r2'] = row[f'poly{degree}_held_r2']
             if row['beats_flat']:
                 name = best
                 row['scaled_shape'] = best
-                params, rho, ok = fit_scaling(name, t, interval, y, intervals.mean())
-                if not ok:
+                params, rho, success = fit_scaling(name, bin_times, interval, observed_values, intervals.mean())
+                if not success:
                     cell_failures.append(dict(model=name, stage='scaled_full_grid'))
                 row.update(rho=rho, rho_at_bound=rho in (-1., 2.))
                 for param_name, value in zip(['a0', 'a', 'mu', 'sigma' if name == 'gaussian' else 'tau'], params):
@@ -161,27 +158,21 @@ def fit_session(session):
                 saved.flush()
                 print(session, 'completed neuron', neuron + 1, flush=True)
     pd.DataFrame(rows).to_csv(OUTPUT / f'{session}.csv', index=False)
-    elapsed = time.perf_counter() - started
-    (OUTPUT / f'{session}_timing.json').write_text(json.dumps(dict(seconds=elapsed, failures=failures), indent=2))
-    print(session, 'complete in seconds', elapsed, flush=True)
-    return elapsed, len(rows)
+    pd.DataFrame([dict(failure, session=session) for failure in failures], columns=['session', 'neu_id', 'model', 'fold', 'stage']).to_csv(OUTPUT / f'{session}_failures.csv', index=False)
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--workers', type=int, default=4)
     args = parser.parse_args()
-    if not json.loads((OUTPUT / 'dataset_status.json').read_text())['alignment_passed']:
-        raise ValueError('alignment gate did not pass')
-    started = time.perf_counter()
-    seconds, neurons = fit_session(SESSIONS_4S[0])
-    total = len(pd.read_csv(OUTPUT / 'labels.csv'))
-    estimate = seconds * (total - neurons) / neurons / args.workers / 3600
-    print('estimated remaining fitting hours after first session:', estimate, flush=True)
+    OUTPUT.mkdir(parents=True, exist_ok=True)
+    alignment = pd.read_csv(ROOT / 'outputs' / 'dataset' / 'alignment_checks.csv')
+    if alignment.offset_zero_largest.sum() <= len(alignment) / 2:
+        raise ValueError('offset zero does not give the largest drop in most sessions')
+    fit_session(SESSIONS_4S[0])
     with ProcessPoolExecutor(max_workers=args.workers) as pool:
         list(pool.map(fit_session, SESSIONS_4S[1:]))
     pd.concat([pd.read_csv(OUTPUT / f'{session}.csv') for session in SESSIONS_4S], ignore_index=True).to_csv(OUTPUT / 'fits_all.csv', index=False)
-    (OUTPUT / 'fit_timing.json').write_text(json.dumps(dict(seconds=time.perf_counter() - started), indent=2))
 
 
 if __name__ == '__main__':

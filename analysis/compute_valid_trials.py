@@ -8,9 +8,7 @@ recompute Kori's adjacent-trial validity rule from cue-aligned lick indices
 '''
 
 #%% imports
-import json
 import sys
-import time
 from pathlib import Path
 
 import h5py
@@ -24,7 +22,6 @@ from utils.matlab_inputs import load_numeric
 
 #%% trial selection
 def cue_trial_fields(path: Path):
-    '''read only trialsCue and the three fields used by the validity rule'''
     if not path.is_file():
         raise FileNotFoundError(f'missing alignCue source: {path}')
     if not h5py.is_hdf5(path):
@@ -35,16 +32,16 @@ def cue_trial_fields(path: Path):
         return (np.asarray(trial['startLfpInd']).ravel(),
                 np.asarray(trial['endLfpInd']).ravel(),
                 np.asarray(trial['lickLfpInd'], dtype=object).ravel())
-    with h5py.File(path, 'r') as f:
-        if 'trialsCue' not in f:
+    with h5py.File(path, 'r') as saved:
+        if 'trialsCue' not in saved:
             raise ValueError(f'missing trialsCue: {path}')
-        trial = f['trialsCue']
+        trial = saved['trialsCue']
         start = np.asarray(trial['startLfpInd']).ravel()
         end = np.asarray(trial['endLfpInd']).ravel()
         refs = np.asarray(trial['lickLfpInd']).ravel()
         licks = []
         for ref in refs:
-            cell = f[ref]
+            cell = saved[ref]
             # MATLAB stores an empty cell's dimensions rather than lick indices
             licks.append(np.array([]) if cell.attrs.get('MATLAB_empty', 0)
                          else np.asarray(cell).ravel())
@@ -69,7 +66,6 @@ def valid_trial_rows(start, end, licks):
 
 #%% main
 def main():
-    started = time.perf_counter()
     target = ROOT / 'data' / 'valid_trials'
     output = ROOT / 'outputs' / 'initial_fits'
     target.mkdir(parents=True, exist_ok=True)
@@ -82,7 +78,6 @@ def main():
             start, end, licks = cue_trial_fields(source)
         except (FileNotFoundError, KeyError, ValueError) as error:
             checks.append(dict(session=session, source=str(source), error=str(error)))
-            (output / 'valid_trial_checks.json').write_text(json.dumps(checks, indent=2))
             raise
         valid, end_from_last, start_from_first = valid_trial_rows(start, end, licks)
         np.save(target / f'{session}.npy', valid)
@@ -97,13 +92,8 @@ def main():
                          computed_only=np.setdiff1d(valid, expected).astype(int).tolist(),
                          source_only=np.setdiff1d(expected, valid).astype(int).tolist())
         checks.append(check)
-        (output / 'valid_trial_checks.json').write_text(json.dumps(checks, indent=2))
-        print(json.dumps(check), flush=True)
-    matched = all(c.get('exact_match', True) for c in checks)
-    (output / 'valid_trial_status.json').write_text(json.dumps(dict(
-        all_compared_match=matched, seconds=time.perf_counter() - started,
-        compared_sessions=[c['session'] for c in checks if c['compared']],
-        ), indent=2))
+        print(check, flush=True)
+    matched = all(check.get('exact_match', True) for check in checks)
     if not matched:
         raise ValueError('computed valid trials differ from ValidTrAll; stop before dataset construction')
 

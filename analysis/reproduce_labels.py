@@ -8,9 +8,7 @@ reproduce the fitted lick ratios without replacing source-table labels
 '''
 
 #%% imports
-import json
 import sys
-import time
 from pathlib import Path
 
 import matio
@@ -25,7 +23,6 @@ from utils.project_paths import TABLES_ROOT
 
 #%% main
 def main():
-    started = time.perf_counter()
     output = ROOT / 'outputs' / 'dataset'
     labels = pd.read_csv(ROOT / 'outputs' / 'dataset' / 'labels.csv')
     tic_source = matio.load_from_mat(str(TABLES_ROOT / 'RiseLastLickDownLickNeurons_thres.mat'))
@@ -43,11 +40,11 @@ def main():
                 checks.append(dict(session=session, alignment=alignment, format=reader.format,
                                    neurons=reader.n_neurons, trial_rows=reader.shape(0)[0]))
                 for neuron in range(reader.n_neurons):
-                    arr = reader.read(neuron)
-                    if arr.shape[1] != 5000:
+                    raw_dff = reader.read(neuron)
+                    if raw_dff.shape[1] != 5000:
                         raise ValueError(f'{session}: unexpected sample count')
                     for subset, mask in [('all', np.ones(len(selected), dtype=bool)), ('Ind_35to45', selected)]:
-                        profile = np.mean(arr[mask], axis=0)
+                        profile = np.mean(raw_dff[mask], axis=0)
                         profile = (profile - profile.min()) / (profile.max() - profile.min())
                         ratio = np.mean(profile[1500:1750]) / np.mean(profile[1250:1500])
                         ratios[(neuron + 1, subset, alignment)] = float(ratio)
@@ -71,9 +68,8 @@ def main():
                                extras=len(found - expected), missing=len(expected - found))
     summary['time_cells'] = int(labels.is_time_cell.sum())
     summary['tic_and_time_cell'] = int((labels.is_tic & labels.is_time_cell).sum())
-    summary['seconds'] = time.perf_counter() - started
-    (output / 'reproduction.json').write_text(json.dumps(summary, indent=2))
-    print(json.dumps(summary, indent=2), flush=True)
+    counts = pd.DataFrame([dict(subset=subset, **values, time_cells=summary['time_cells'], tic_and_time_cell=summary['tic_and_time_cell']) for subset, values in summary.items() if isinstance(values, dict)])
+    counts.to_csv(output / 'label_counts.csv', index=False)
 
 
 if __name__ == '__main__':
