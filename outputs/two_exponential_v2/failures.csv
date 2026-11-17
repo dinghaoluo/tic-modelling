@@ -1,0 +1,3 @@
+session,neu_id,model,stage,issue
+A133-20230114-02,15,revised_next,3,least_squares did not converge
+A214-20251013-02,67,revised_next,full,least_squares did not converge
