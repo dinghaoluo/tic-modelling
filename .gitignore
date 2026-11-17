@@ -2,12 +2,11 @@
 data/
 figures/
 outputs/
+_archive/outputs/
 
 # working notes, including unpublished results and manuscript correspondence
 notes/
-
-# files awaiting manual deletion
-_to_delete/
+PROGRESS.md
 
 # recordings never belong here, wherever they end up
 *.mat
