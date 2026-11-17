@@ -8,7 +8,6 @@ plot saved two-exponential model comparisons
 '''
 
 #%% imports
-import json
 from pathlib import Path
 
 import numpy as np
@@ -24,10 +23,10 @@ PRIMARY = {'tic_down': 'last', 'tic_up': 'next', 'time_cell': 'last'}
 EXPONENTIAL = {'tic_down': 'decay', 'tic_up': 'rise', 'time_cell': 'decay'}
 
 #%% saved summaries
-def p_label(p):
-    if p < .001:
+def p_label(p_value):
+    if p_value < .001:
         return 'p < 0.001'
-    return f'p = {p:#.2g}' + (' (n.s.)' if p >= .05 else '')
+    return f'p = {p_value:#.2g}' + (' (n.s.)' if p_value >= .05 else '')
 
 
 def selected_rows(table, models):
@@ -92,7 +91,7 @@ def make_figure(table):
 def main():
     table = pd.read_csv(INPUT)
     annotations = make_figure(table)
-    print(json.dumps(annotations, indent=2))
+    print(pd.DataFrame(annotations).to_string(index=False))
 
 
 if __name__ == '__main__':

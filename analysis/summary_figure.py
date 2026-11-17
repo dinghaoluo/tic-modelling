@@ -9,21 +9,15 @@ summarise held-out shapes and wider-window field parameters
 
 #%% imports
 import argparse
-import json
 import os
 import sys
-import time
-from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
-import h5py
 import numpy as np
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from utils.trial_error_scores import trial_mse
-from analysis.compare_models_trial import trial_loglikelihood, trial_contrast
 from analysis.compare_models import paired_test
 from utils.rf_models import BOUNDS
 
@@ -40,49 +34,6 @@ BASE_COLUMNS = ['group', 'measure', 'n cells', 'n sessions', 'median', 'IQR low'
                 'SD', '% cells at bound', 'comparison', 'p for median', 'p for SD']
 
 #%% polynomial predictions
-def polynomial_session(session):
-    started = time.perf_counter()
-    fits = pd.read_csv(FITS / 'fits_all.csv')
-    fits = fits[fits.session == session].reset_index(drop=True)
-    data = np.load(ROOT / 'data' / 'binned' / f'{session}.npz')
-    dff = data['dff']
-    folds = np.load(FITS / f'{session}_folds.npz')
-    np.testing.assert_array_equal(fits.neu_id, np.arange(1, len(dff) + 1))
-    np.testing.assert_array_equal(data['trial_rows'], folds['trial_rows'])
-    resamples = folds['bootstrap_trials']
-    if resamples.shape[1] != dff.shape[1] or np.any(resamples < 0) or np.any(resamples >= dff.shape[1]):
-        raise ValueError(f'{session}: bootstrap trials do not match observations')
-    rows = []
-    with h5py.File(FITS / f'{session}_oof.h5', 'r') as saved:
-        np.testing.assert_array_equal(saved['trial_rows'][:], data['trial_rows'] + 1)
-        for neuron, cell in fits.iterrows():
-            if cell.group not in GROUPS:
-                continue
-            signal = dff[neuron]
-            flat = saved['flat'][neuron]
-            np.testing.assert_array_equal(np.isfinite(flat), np.isfinite(signal))
-            flat_error = trial_mse(signal, flat)
-            np.testing.assert_allclose(flat_error.mean(), cell.flat_held_mse, rtol=0, atol=1e-8)
-            variance = np.var((signal - flat)[np.isfinite(signal)], ddof=0)
-            if not np.isfinite(variance) or variance <= 0:
-                raise ValueError(f'{session}, neuron {neuron + 1}: invalid flat variance')
-            errors = {}
-            row = dict(session=session, neu_id=int(cell.neu_id), group=cell.group,
-                       flat_residual_variance=variance)
-            for degree in range(1, 5):
-                model = f'poly{degree}'
-                prediction = saved[model][neuron]
-                np.testing.assert_array_equal(np.isfinite(prediction), np.isfinite(signal))
-                errors[degree] = trial_mse(signal, prediction)
-                np.testing.assert_allclose(errors[degree].mean(), cell[f'{model}_held_mse'], rtol=0, atol=1e-8)
-                row[f'{model}_trial_mean_ll'] = trial_loglikelihood(errors[degree], variance).mean()
-            difference = trial_contrast(errors[4], errors[1], variance)
-            lower, upper = np.percentile(difference[resamples].mean(axis=1), [2.5, 97.5])
-            row.update(mean_contrast=difference.mean(), lower=lower, upper=upper,
-                       decision='poly4' if lower > 0 else 'poly1' if upper < 0 else 'undecided')
-            rows.append(row)
-    print(session, 'polynomial check complete in seconds', time.perf_counter() - started, flush=True)
-    return rows
 
 
 #%% table statistics
@@ -95,20 +46,20 @@ def distribution(values):
             'SD': np.std(values, ddof=1) if len(values) > 1 else np.nan}
 
 
-def p_label(p):
-    if not np.isfinite(p):
+def p_label(p_value):
+    if not np.isfinite(p_value):
         raise ValueError('figure p-value is undefined')
-    if p < .001:
+    if p_value < .001:
         return 'p < 0.001'
-    return f'p = {p:#.2g}' + (' (n.s.)' if p >= .05 else '')
+    return f'p = {p_value:#.2g}' + (' (n.s.)' if p_value >= .05 else '')
 
 
-def category_summary(cells, a, b):
+def category_summary(cells, model_a, model_b):
     medians = cells.groupby('session').mean_contrast.median()
-    _, p = paired_test(medians)
-    percentages = [100 * (cells.decision == name).mean() for name in [a, b, 'undecided']]
+    _, p_value = paired_test(medians)
+    percentages = [100 * (cells.decision == name).mean() for name in [model_a, model_b, 'undecided']]
     np.testing.assert_allclose(sum(percentages), 100., atol=1e-10)
-    return percentages, p, len(medians)
+    return percentages, p_value, len(medians)
 
 
 def parameter_name(group, measure):
@@ -154,116 +105,19 @@ def parameter_values(fits, group, measure, include_bound=False):
 def paired_parameters(left, right, left_parameter, right_parameter):
     pairs = []
     for session in left.session.drop_duplicates():
-        a = left.loc[left.session == session, left_parameter]
-        b = right.loc[right.session == session, right_parameter]
-        if not len(a) or not len(b):
+        left_values = left.loc[left.session == session, left_parameter]
+        right_values = right.loc[right.session == session, right_parameter]
+        if not len(left_values) or not len(right_values):
             continue
-        pairs.append(dict(session=session, n_group=len(a), n_time_cell=len(b),
-                          median_group=a.median(), median_time_cell=b.median(),
-                          sd_group=a.std(ddof=1), sd_time_cell=b.std(ddof=1)))
+        pairs.append(dict(session=session, n_group=len(left_values), n_time_cell=len(right_values),
+                          median_group=left_values.median(), median_time_cell=right_values.median(),
+                          sd_group=left_values.std(ddof=1), sd_time_cell=right_values.std(ddof=1)))
     if not pairs:
         raise ValueError('no eligible paired parameter sessions')
     pairs = pd.DataFrame(pairs)
     _, median_p = paired_test(pairs.median_group - pairs.median_time_cell)
     _, sd_p = paired_test(pairs.sd_group - pairs.sd_time_cell)
     return median_p, sd_p, pairs
-
-
-def make_table(fits, primary, polynomial, population, literature):
-    rows, pair_rows = [], []
-    for group, label in zip(GROUPS, LABELS):
-        selected = primary[(primary.group == group) & (primary.contrast == PRIMARY[group])]
-        np.testing.assert_array_equal(selected.neu_id.to_numpy(), fits.loc[fits.group == group, 'neu_id'].to_numpy())
-        exponential = 'rise' if group == 'tic_up' else 'decay'
-        percentages, p, n_sessions = category_summary(selected, 'gaussian', exponential)
-        reference = population[(population.subset == 'all_sessions') & (population.level == 'group') &
-                               (population.group == group) & (population.contrast == PRIMARY[group])]
-        if len(reference) != 1:
-            raise ValueError('primary population row missing or duplicated')
-        reference = reference.iloc[0]
-        np.testing.assert_allclose(percentages, reference[['pct_favour_a', 'pct_favour_b', 'pct_undecided']].to_numpy(float), atol=1e-10)
-        np.testing.assert_allclose(p, reference.wilcoxon_p, atol=1e-12)
-        assert len(selected) == reference.n_cells and n_sessions == reference.n_sessions
-        rows.append({'group': label, 'measure': 'Gaussian vs exponential', 'n cells': len(selected),
-                     'n sessions': n_sessions, **distribution(selected.mean_contrast),
-                     'comparison': f'Gaussian minus {exponential}', 'p for median': p,
-                     '% Gaussian better': percentages[0], '% Exponential better': percentages[1],
-                     '% No clear difference': percentages[2]})
-        selected = polynomial[polynomial.group == group]
-        percentages, p, n_sessions = category_summary(selected, 'poly4', 'poly1')
-        rows.append({'group': label, 'measure': 'Linear vs curved', 'n cells': len(selected),
-                     'n sessions': n_sessions, **distribution(selected.mean_contrast),
-                     'comparison': 'degree 4 minus degree 1', 'p for median': p,
-                     '% Curved better': percentages[0], '% Linear better': percentages[1],
-                     '% No clear difference': percentages[2]})
-        for measure in ['peak', 'width', 'ramp rate']:
-            retained, parameter, bound_percentage = parameter_values(fits, group, measure)
-            row = {'group': label, 'measure': measure, 'n cells': len(retained),
-                   'n sessions': retained.session.nunique(), **distribution(retained[parameter]),
-                   '% cells at bound': bound_percentage,
-                   'comparison': 'reference' if group == 'time_cell' else 'Time cell',
-                   'source parameter': ('-rise_mu' if group == 'tic_up' and measure == 'peak' else parameter),
-                   'convention': ('session median T_k minus rise_mu, relative to last lick' if group == 'tic_up' and measure == 'peak'
-                                  else 'decay_mu, relative to last lick' if group == 'tic_down' and measure == 'peak'
-                                  else '')}
-            if group != 'time_cell':
-                reference_cells, reference_parameter, _ = parameter_values(fits, 'time_cell', measure)
-                p, sd_p, pairs = paired_parameters(retained, reference_cells, parameter, reference_parameter)
-                if not (measure == 'peak' and group == 'tic_up'):
-                    row.update({'n sessions': len(pairs), 'p for median': p, 'p for SD': sd_p})
-                    pair_rows.extend([dict(group=label, measure=measure,
-                                           convention=('session median T_k minus rise_mu, relative to last lick' if group == 'tic_up' and measure == 'peak'
-                                                       else 'decay_mu, relative to last lick' if group == 'tic_down' and measure == 'peak' else ''),
-                                           **record) for record in pairs.to_dict('records')])
-            if measure == 'ramp rate' and group in ['tic_down', 'tic_up']:
-                row.update({'published value': 2.25 if group == 'tic_down' else 1.03,
-                            'citation': 'published ramp benchmark'})
-            rows.append(row)
-        for degree in range(1, 5):
-            selected = polynomial[polynomial.group == group]
-            rows.append({'group': label, 'measure': f'polynomial degree {degree}', 'n cells': len(selected),
-                         'n sessions': selected.session.nunique(),
-                         **distribution(selected[f'poly{degree}_trial_mean_ll']),
-                         'comparison': 'mean held-out log-likelihood per observed bin, equal trial weights'})
-    for metric, subset, measure in [('peak_power_law_alpha', None, 'time-cell exponent'),
-                                    ('width_on_peak_slope_trial_check', 'field_only', 'field-only width slope')]:
-        selected = literature[(literature.group == 'time_cell') & (literature.metric == metric)]
-        if subset is not None:
-            selected = selected[selected.subset == subset]
-        if len(selected) != 1:
-            raise ValueError(f'published comparison row missing: {measure}')
-        value = selected.iloc[0]
-        row = {'group': 'Time cells', 'measure': measure, 'n cells': value.n_cells,
-               'n sessions': fits.loc[fits.group == 'time_cell', 'session'].nunique(),
-               'estimate': value.our_value, 'standard error': value.our_standard_error,
-               'interval low': value.our_lower, 'interval high': value.our_upper,
-               'published value': value.published_value, 'published error': value.published_error,
-               'published interval low': value.published_lower, 'published interval high': value.published_upper,
-               'citation': value.citation}
-        if measure == 'time-cell exponent':
-            row['n cells in peak limits'] = value.n_peaks_in_limits
-        else:
-            row['n sessions'] = fits.loc[(fits.group == 'time_cell') & (fits.gaussian_class == 'field'), 'session'].nunique()
-        rows.append(row)
-    peak_cells = {}
-    for group in GROUPS:
-        peak_cells[group] = parameter_values(parameters, group, 'peak', include_bound=True)[0]
-    cross_left = peak_cells['tic_down']
-    cross_right = peak_cells['tic_up']
-    cross_pairs = paired_parameters(cross_left, cross_right, parameter_name('tic_down', 'peak'), parameter_name('tic_up', 'peak'))[2]
-    _, cross_p = paired_test(cross_pairs.median_group - cross_pairs.median_time_cell)
-    rows.append({'group': 'Ramp-down TIC vs Ramp-up TIC', 'measure': 'peak', 'n cells': len(cross_left) + len(cross_right),
-                 'n sessions': len(cross_pairs), 'median': np.nan, 'IQR low': np.nan, 'IQR high': np.nan,
-                 'SD': np.nan, 'comparison': 'shared last-lick reference', 'p for median': cross_p,
-                 'convention': 'ramp-down decay_mu; ramp-up session median T_k minus rise_mu'})
-    for record in cross_pairs.to_dict('records'):
-        pair_rows.append(dict(group='Ramp-down TIC vs Ramp-up TIC', measure='peak', bound_subset='included',
-                              convention='ramp-down decay_mu; ramp-up session median T_k minus rise_mu', **record))
-    table = pd.DataFrame(rows)
-    for column in BASE_COLUMNS:
-        if column not in table:
-            table[column] = np.nan
-    return table[BASE_COLUMNS + [column for column in table if column not in BASE_COLUMNS]], pd.DataFrame(pair_rows)
 
 
 #%% figure
@@ -367,50 +221,12 @@ def make_figure(table, fits, suffix='', wider=False):
 
 
 #%% main
-def main():
-    started = time.perf_counter()
-    OUTPUT.mkdir(parents=True, exist_ok=True)
-    FIGURES.mkdir(parents=True, exist_ok=True)
-    fits = pd.read_csv(FITS / 'fits_all.csv')
-    primary = pd.read_csv(OUTPUT / 'cell_ll_trial.csv')
-    population = pd.read_csv(OUTPUT / 'population_ll_trial.csv')
-    literature = pd.read_csv(OUTPUT / 'literature.csv')
-    sessions = fits.session.drop_duplicates().tolist()
-    workers = min(12, os.cpu_count() or 1, len(sessions))
-    print('session workers:', workers, flush=True)
-    with ProcessPoolExecutor(max_workers=workers) as pool:
-        results = list(pool.map(polynomial_session, sessions))
-    polynomial = pd.DataFrame([row for session in results for row in session])
-    polynomial.to_csv(OUTPUT / 'summary_polynomial_cells.csv', index=False)
-    table, pairs = make_table(fits, primary, polynomial, population, literature)
-    table.to_csv(OUTPUT / 'summary_table.csv', index=False)
-    pairs.to_csv(OUTPUT / 'summary_parameter_session_pairs.csv', index=False)
-    annotations = make_figure(table, fits)
-    saved_table = pd.read_csv(OUTPUT / 'summary_table.csv')
-    for annotation in annotations:
-        row = saved_table[(saved_table.group == annotation['group']) & (saved_table.measure == annotation['measure'])]
-        assert len(row) == 1
-        np.testing.assert_allclose(row.iloc[0]['p for median'], annotation['p'], rtol=0, atol=1e-14)
-        assert p_label(row.iloc[0]['p for median']) == annotation['text']
-    report = dict(seconds=time.perf_counter() - started, workers=workers, figure_p_values=annotations,
-                  bar_percentages_sum_to_100=True, primary_matches_population=True,
-                  every_figure_p_matches_table=True, interpreter=sys.executable,
-                  bound_exclusion='parameter-specific bound flags only; percentages use all group cells as denominator',
-                  parameter_tests='two-sided paired session median and SD tests; at least five retained cells in both groups',
-                  n_sessions='paired-session count for TIC parameter comparisons; group session count otherwise',
-                  polynomial_likelihood='one flat residual population variance per cell; equal trial weights; saved trial resamples; all four degrees from saved predictions')
-    (OUTPUT / 'summary_figure_checks.json').write_text(json.dumps(report, indent=2))
-    print(json.dumps(report, indent=2), flush=True)
-
 
 
 def wider_main():
-    started = time.perf_counter()
     wider_dir = ROOT / 'outputs' / 'wider_window_fits'
     peak_dir = ROOT / 'outputs' / 'peak_position'
     os.environ['MPLCONFIGDIR'] = str(peak_dir / 'matplotlib')
-    protected = {str(path): (path.stat().st_size, path.stat().st_mtime_ns)
-                 for folder in ['outputs', 'figures'] for path in (ROOT / folder).rglob('*') if path.is_file()}
     parameters = pd.concat([pd.read_csv(wider_dir / f'{session}_wider_parameters.csv')
                             for session in pd.read_csv(FITS / 'fits_all.csv').session.drop_duplicates()], ignore_index=True)
     primary = pd.read_csv(wider_dir / 'wider_window_cells.csv')
@@ -418,18 +234,18 @@ def wider_main():
                              for session in parameters.session.drop_duplicates()], ignore_index=True)
     rows, pair_rows = [], []
     for group, label in zip(GROUPS, LABELS):
-        for measure, cells, a, b, categories in [
+        for measure, cells, model_a, model_b, categories in [
                 ('Gaussian vs exponential', primary[(primary.group == group) & (primary.contrast == PRIMARY[group])],
                  'gaussian', 'rise' if group == 'tic_up' else 'decay', ['Gaussian better', 'Exponential better', 'No clear difference']),
                 ('Linear vs curved', polynomial[polynomial.group == group], 'poly4', 'poly1',
                  ['Curved better', 'Linear better', 'No clear difference'])]:
             medians = cells.groupby('session').mean_contrast.agg(['size', 'median'])
             eligible = medians.dropna()
-            _, p = paired_test(eligible['median'])
-            percentages = [100 * (cells.decision == name).mean() for name in [a, b, 'undecided']]
+            _, p_value = paired_test(eligible['median'])
+            percentages = [100 * (cells.decision == name).mean() for name in [model_a, model_b, 'undecided']]
             np.testing.assert_allclose(sum(percentages), 100., atol=1e-10)
             rows.append({'group': label, 'measure': measure, 'n cells': len(cells), 'n sessions': len(eligible),
-                         **distribution(cells.mean_contrast), 'comparison': f'{a} minus {b}', 'p for median': p,
+                         **distribution(cells.mean_contrast), 'comparison': f'{model_a} minus {model_b}', 'p for median': p_value,
                          **{'% ' + category: value for category, value in zip(categories, percentages)}})
         for measure in ['peak', 'width', 'ramp rate']:
             all_left, parameter, _ = parameter_values(parameters, group, measure, include_bound=True)
@@ -491,7 +307,7 @@ def wider_main():
     for column in BASE_COLUMNS:
         if column not in table:
             table[column] = np.nan
-    table = table[BASE_COLUMNS + [c for c in table if c not in BASE_COLUMNS]]
+    table = table[BASE_COLUMNS + [column for column in table if column not in BASE_COLUMNS]]
     table.to_csv(OUTPUT / 'summary_table_wider.csv', index=False)
     pd.DataFrame(pair_rows).to_csv(OUTPUT / 'summary_parameter_session_pairs_wider.csv', index=False)
     figure_table = table[table['bound subset'].isna() | table['bound subset'].eq('included')]
@@ -504,23 +320,6 @@ def wider_main():
         assert len(row) == 1
         np.testing.assert_allclose(row.iloc[0]['p for median'], annotation['p'], rtol=0, atol=1e-14)
         assert p_label(row.iloc[0]['p for median']) == annotation['text']
-    wider_outputs = {'summary_table_wider.csv', 'summary_parameter_session_pairs_wider.csv',
-                     'summary_figure_wider_checks.json', 'fig_summary_wider.png', 'fig_summary_wider.pdf',
-                     'receptive_field_model_summary.png', 'receptive_field_model_summary.pdf'}
-    for path, metadata in protected.items():
-        if Path(path).name in wider_outputs:
-            continue
-        stat = Path(path).stat()
-        assert (stat.st_size, stat.st_mtime_ns) == metadata, path
-    report = dict(seconds=time.perf_counter() - started, interpreter=sys.executable, old_files_unchanged=True,
-                  figure_annotations=annotations, every_figure_p_matches_table=True,
-                  width_and_tau='all cells in figure; bound cells marked with crosses; bound-excluded table rows only',
-                  peak='all cells shown with bound cells marked; statistics exclude bound cells',
-                  session_tests='two-sided paired session medians and SDs; all sessions with finite group medians',
-                  polynomials='only the authorised degrees one and four; no other models fitted',
-                  literature='published ramp references retained; no new exponent or slope estimated')
-    (OUTPUT / 'summary_figure_wider_checks.json').write_text(json.dumps(report, indent=2))
-    print(json.dumps(report, indent=2), flush=True)
 
 
 if __name__ == '__main__':
@@ -539,4 +338,4 @@ if __name__ == '__main__':
             parameters = pd.read_csv(FITS / 'fits_all.csv')
         make_figure(table, parameters, wider=args.wider)
     else:
-        wider_main() if args.wider else main()
+        wider_main()

@@ -8,7 +8,6 @@ summarise the cell-group cell and session comparisons without further analyses
 '''
 
 #%% imports
-import json
 import sys
 from pathlib import Path
 
@@ -86,7 +85,7 @@ def power_exponent(values):
     return float(result.x)
 
 
-#%% report
+#%% tables
 def main():
     frame = pd.read_csv(OUTPUT / 'fits_all.csv')
     sections = []
@@ -131,9 +130,9 @@ def main():
     for group in GROUPS:
         cells = frame[frame.group == group]
         for shape in SHAPES:
-            x, y = f'{shape}_mu', f'{shape}_sigma' if shape == 'gaussian' else f'{shape}_tau'
-            rho = spearmanr(cells[x], cells[y]).statistic
-            session_rho = [spearmanr(part[x], part[y]).statistic for _, part in cells.groupby('session') if len(part) > 1]
+            time_cell_values, tic_values = f'{shape}_mu', f'{shape}_sigma' if shape == 'gaussian' else f'{shape}_tau'
+            rho = spearmanr(cells[time_cell_values], cells[tic_values]).statistic
+            session_rho = [spearmanr(part[time_cell_values], part[tic_values]).statistic for _, part in cells.groupby('session') if len(part) > 1]
             rows.append([group, shape, len(cells), number(rho), session_average(session_rho)])
     sections.append('## 4. Spearman parameter correlations\n\n' + table(
         ['group (all cells)', 'shape', 'cells', 'rho', 'session rho mean +/- SEM'], rows))
@@ -181,13 +180,13 @@ def main():
     pairs = np.asarray(pairs)
     rows = []
     for i, name in enumerate(['% gaussian', '% decay or rise', 'SD gaussian mu (s)', 'median gaussian sigma (s)', 'median decay tau (s)']):
-        x, y = pairs[:, 0, i], pairs[:, 1, i]
-        if np.all(x == y):
-            statistic, p = 0., 1.
+        time_cell_values, tic_values = pairs[:, 0, i], pairs[:, 1, i]
+        if np.all(time_cell_values == tic_values):
+            statistic, p_value = 0., 1.
         else:
-            result = wilcoxon(x, y, alternative='two-sided')
-            statistic, p = result.statistic, result.pvalue
-        rows.append([name, len(pairs), session_average(x), session_average(y), number(statistic), number(p)])
+            result = wilcoxon(time_cell_values, tic_values, alternative='two-sided')
+            statistic, p_value = result.statistic, result.pvalue
+        rows.append([name, len(pairs), session_average(time_cell_values), session_average(tic_values), number(statistic), number(p_value)])
     sections.append('## 7. Paired session comparisons\n\n' + table(
         ['metric', 'paired sessions', 'time_cell mean +/- SEM', 'tic_down + tic_up mean +/- SEM', 'Wilcoxon statistic', 'two-sided p'], rows)
         + '\n\nSessions: ' + ', '.join(eligible) + '.')

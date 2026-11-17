@@ -18,14 +18,14 @@ from scipy.stats import wilcoxon
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from rec_list import SESSIONS_4S
-from analysis import summarise_fits_base_v1_2 as earlier
-from analysis.summarise_fits import GROUPS, SHAPES, PARAMS, number, table, session_average, distribution_row
+from analysis import fit_distributions as earlier
+from analysis.fit_distributions import GROUPS, SHAPES, PARAMS, number, table, session_average, distribution_row
 
 #%% constants
 OUTPUT = ROOT / 'outputs' / 'fits'
 EXCLUDED = 'A132-20221124-02'
 
-#%% requested repeated sections
+#%% repeated comparisons
 def preference_table(frame, column='preferred'):
     rows = []
     sessions = [session for session in SESSIONS_4S if session in set(frame.session)]
@@ -94,11 +94,11 @@ def paired_table(frame):
             rows.append([metric, 0, 'NA', 'NA', 'NA', 'NA'])
             continue
         values = np.asarray(pairs)
-        x, y = values[:, 0, i], values[:, 1, i]
-        statistic, p = (0., 1.) if np.all(x == y) else wilcoxon(x, y, alternative='two-sided')
-        rows.append([metric, len(pairs), session_average(x), session_average(y), number(statistic), number(p)])
+        time_cell_values, tic_values = values[:, 0, i], values[:, 1, i]
+        statistic, p_value = (0., 1.) if np.all(time_cell_values == tic_values) else wilcoxon(time_cell_values, tic_values, alternative='two-sided')
+        rows.append([metric, len(pairs), session_average(time_cell_values), session_average(tic_values), number(statistic), number(p_value)])
     return table(['metric', 'paired sessions', 'time_cell mean +/- SEM', 'tic_down + tic_up mean +/- SEM',
-                  'Wilcoxon statistic', 'two-sided p'], rows) + '\n\nSessions: ' + ', '.join(sessions) + '.'
+                  'Wilcoxon statistic', 'two-sided p'], rows)
 
 
 #%% gaussian classes and reported alignments
@@ -140,7 +140,7 @@ def additional_sections(frame):
                 stats = earlier.distribution(cells[column])
                 parts = [earlier.distribution(part[column]) for _, part in cells.groupby('session')]
                 rows.append([group, shape, alignment, len(cells), number(stats[0]), number(stats[1]),
-                             session_average([p[0] for p in parts]), session_average([p[1] for p in parts])])
+                             session_average([p_value[0] for p_value in parts]), session_average([p_value[1] for p_value in parts])])
     text += '\n\n## F. Mean-trace R2 among cells beating flat\n\n' + table(
         ['group', 'shape', 'lick alignment', 'cells', 'median R2', 'R2 IQR',
          'session median mean +/- SEM', 'session IQR mean +/- SEM'], rows)
@@ -174,7 +174,6 @@ def main():
     frame = pd.read_csv(OUTPUT / 'fits_all.csv')
     summary = (OUTPUT / 'summary.md').read_text()
     extra = '\n\n### 3C. Decay and rise tau excluding cells at a bound\n\n'
-    extra += 'A cell is excluded here if mu, tau or amplitude of that fitted shape is flagged at a bound.\n\n'
     extra += unbounded_tau_table(frame)
     extra += '\n\n### 3C. Repeated using only cells beating flat\n\n'
     extra += parameter_table(frame[frame.beats_flat])
@@ -183,7 +182,7 @@ def main():
     extra = '\n\n### 7C. Repeated using only cells beating flat\n\n' + paired_table(frame[frame.beats_flat])
     summary = summary.replace('## 8. Polynomials', extra + '\n\n## 8. Polynomials')
     summary += '\n\n## A. Best shape by point estimate, ignoring intervals\n\n' + preference_table(frame, 'best_shape')
-    checks = pd.read_csv(OUTPUT / 'dataset_checks.csv')
+    checks = pd.read_csv(ROOT / 'outputs' / 'dataset' / 'dataset_checks.csv')
     rows = []
     for session in SESSIONS_4S:
         part = frame[frame.session == session]

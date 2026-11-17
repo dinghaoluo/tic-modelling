@@ -234,10 +234,6 @@ def main():
     parameters = load_parameters()
     table = summary_table(parameters)
     table.to_csv(OUTPUT / 'wider_parameter_summary.csv', index=False)
-    (OUTPUT / 'wider_parameter_summary.md').write_text(
-        '# fitted parameter distributions\n\n' + table.to_string(index=False) + '\n',
-        encoding='utf-8',
-    )
     make_figure(parameters, table)
 
 

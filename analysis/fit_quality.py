@@ -38,11 +38,11 @@ def r_squared(observed, prediction):
     keep = np.isfinite(observed) & np.isfinite(prediction)
     if keep.sum() < 2:
         return np.nan
-    y, fitted = observed[keep], prediction[keep]
-    total = np.sum((y - y.mean()) ** 2)
+    observed_values, fitted = observed[keep], prediction[keep]
+    total = np.sum((observed_values - observed_values.mean()) ** 2)
     if total == 0:
         return np.nan
-    return float(1. - np.sum((y - fitted) ** 2) / total)
+    return float(1. - np.sum((observed_values - fitted) ** 2) / total)
 
 
 def average_traces(signal, times, intervals, cell, alignment, additional=None):
@@ -182,10 +182,10 @@ def make_figure(cells, examples, curves):
         example_grid = grid[row].subgridspec(1, 4, wspace=.75)
         for column, cell in enumerate(selected.itertuples()):
             axis = fig.add_subplot(example_grid[column])
-            x, observed, gaussian, exponential = curves[(cell.session, int(cell.neu_id), cell.alignment)]
-            axis.plot(x, observed, color=colour, linewidth=2.)
-            axis.plot(x, gaussian, color='black', linewidth=1.5)
-            axis.plot(x, exponential, color='black', linewidth=1.5, linestyle='--')
+            trace_times, observed, gaussian, exponential = curves[(cell.session, int(cell.neu_id), cell.alignment)]
+            axis.plot(trace_times, observed, color=colour, linewidth=2.)
+            axis.plot(trace_times, gaussian, color='black', linewidth=1.5)
+            axis.plot(trace_times, exponential, color='black', linewidth=1.5, linestyle='--')
             axis.set(xlabel='Time before\nnext lick (s)' if group == 'tic_up' else 'Time from\nlast lick (s)',
                      ylabel='dF/F')
             axis.yaxis.labelpad = 1.
@@ -215,33 +215,7 @@ def make_figure(cells, examples, curves):
     plt.close(fig)
 
 
-#%% report
-def write_summary(summary, examples, issues, curves):
-    lines = ['# fit quality of trial-averaged activity', '',
-             'The saved full-data parameters are evaluated on the original trial bins, and predictions inherit each cell’s observed NaN mask before averaging; no parameters are refitted. The exponential is a decay for ramp-down TICs and time cells, and a rise for ramp-up TICs.', '',
-             'Last-lick averages use the saved t bins, including the pre-last-lick second. Next-lick averages use time before the next lick (T_k minus t) on a 0.05 s grid starting at zero; observed values and both predictions are linearly interpolated within each trial’s shared observed support, without extrapolation or interpolation across missing endpoints. Every retained bin has at least 10 contributing trials.', '',
-             'R² is 1 minus the squared error of the averaged prediction divided by the squared deviation of the averaged observed trace from its mean, with equal weight for each retained time bin; negative values remain negative, while constant traces or fewer than two shared bins give an undefined value. Ramp-up TICs use next-lick alignment as primary. Differences below are Gaussian minus exponential, computed within each cell before taking the median.', '',
-             '| Group | Alignment | n (defined) | Gaussian median [IQR] | Exponential median [IQR] | Median difference | Gaussian >0.5 (%) | Exponential >0.5 (%) |',
-             '|---|---|---:|---:|---:|---:|---:|---:|']
-    for row in summary.itertuples():
-        lines.append(f'| {row.group} | {row.alignment} | {row.n} ({row.n_defined}) | '
-                     f'{row.gaussian_median:.3f} [{row.gaussian_q25:.3f}, {row.gaussian_q75:.3f}] | '
-                     f'{row.exponential_median:.3f} [{row.exponential_q25:.3f}, {row.exponential_q75:.3f}] | '
-                     f'{row.median_difference:.3f} | {row.gaussian_pct_above_half:.1f} | {row.exponential_pct_above_half:.1f} |')
-    lines += ['', 'The IQR describes variation between cells rather than uncertainty in the population median. These are descriptive fits to the same trials used for fitting, so agreement with the mean can be optimistic; the saved held-out trial comparison is the check that separates reproducible shape from fitting the noise.', '',
-              '## example cells', '',
-              'Within each group’s primary alignment, cells are ordered by the larger of their two R² values, with session and neuron ID breaking ties. The selected zero-based rank is the nearest integer to (n minus 1) times the requested percentile; columns run from the 20th to the 80th percentile. No cells are selected by visual appearance.', '',
-              '| Group | Percentile | Session | neu_id | Gaussian R² | Exponential R² | Retained bins |',
-              '|---|---:|---|---:|---:|---:|---:|']
-    for row in examples.itertuples():
-        trace = curves[(row.session, int(row.neu_id), row.alignment)]
-        lines.append(f'| {row.group} | {row.percentile} | {row.session} | {int(row.neu_id)} | '
-                     f'{row.r2_gaussian:.3f} | {row.r2_exponential:.3f} | {len(trace[0])} |')
-    lines += ['', '## input observations', '',
-              'The three saved fit_success=False flags correspond to cross-validation fold failures in the saved session status files; none records a failure of the full-data fit used here.', '',
-              'The 15 saved sessions contain 404 ramp-down TICs, 479 ramp-up TICs and 1,177 time cells. The saved t bins are 0.05 s apart, running from -0.976 to 6.974 s; neuron IDs are matched explicitly rather than treated as array indices. All retained bins and R² values use the original dF/F units.', '']
-    lines += [f'- {issue}' for issue in issues] if issues else ['No discrepancies were found.']
-    (OUTPUT / 'fit_quality_summary.md').write_text('\n'.join(lines) + '\n', encoding='utf-8')
+#%% tables
 
 
 def main():
@@ -254,9 +228,8 @@ def main():
     print('Input observations:', *issues, sep='\n', flush=True)
     examples = choose_examples(cells)
     examples.to_csv(OUTPUT / 'fit_quality_examples.csv', index=False)
-    write_summary(summary, examples, issues, curves)
+    summary.to_csv(OUTPUT / 'fit_quality_summary.csv', index=False)
     make_figure(cells, examples, curves)
-
 
 
 #%% two-exponential extension
@@ -279,14 +252,14 @@ def make_extended_figure(cells, examples, curves, destination):
         example_grid = grid[row].subgridspec(1, 4, wspace=.75)
         for column, cell in enumerate(selected.itertuples()):
             axis = fig.add_subplot(example_grid[column])
-            x, observed, gaussian, exponential, bump = curves[(cell.session, int(cell.neu_id), cell.alignment)]
+            trace_times, observed, gaussian, exponential, bump = curves[(cell.session, int(cell.neu_id), cell.alignment)]
             if group == 'tic_up':
-                x = -x[::-1]
-                observed, gaussian, exponential, bump = [v[::-1] for v in [observed, gaussian, exponential, bump]]
-            axis.plot(x, observed, color=colour, linewidth=2.)
-            axis.plot(x, gaussian, color='black', linewidth=1.5)
-            axis.plot(x, exponential, color='black', linewidth=1.5, linestyle='--')
-            axis.plot(x, bump, color='black', linewidth=1.8, linestyle=':')
+                trace_times = -trace_times[::-1]
+                observed, gaussian, exponential, bump = [value[::-1] for value in [observed, gaussian, exponential, bump]]
+            axis.plot(trace_times, observed, color=colour, linewidth=2.)
+            axis.plot(trace_times, gaussian, color='black', linewidth=1.5)
+            axis.plot(trace_times, exponential, color='black', linewidth=1.5, linestyle='--')
+            axis.plot(trace_times, bump, color='black', linewidth=1.8, linestyle=':')
             axis.set(xlabel='Time relative to\nnext lick (s)' if group == 'tic_up' else 'Time from\nlast lick (s)',
                      ylabel='dF/F')
             axis.yaxis.labelpad = 1.
@@ -322,11 +295,8 @@ def make_extended_figure(cells, examples, curves, destination):
 
 
 def extended_main():
-    import json
-    import time
-    from analysis.two_exponential import predict_bump, markdown
+    from analysis.two_exponential import predict_bump
 
-    started = time.perf_counter()
     destination = ROOT / 'outputs' / 'fit_quality_two_exponential'
     destination.mkdir(parents=True, exist_ok=True)
     parameters = pd.read_csv(ROOT / 'outputs' / 'two_exponential' / 'parameters.csv')
@@ -340,7 +310,7 @@ def extended_main():
         saved = pd.read_csv(path)
         session = saved.session.iloc[0]
         with np.load(DATA / f'{session}.npz') as data:
-            signals, times, intervals, ids = [data[k] for k in ['dff', 't', 'T_k', 'neu_id']]
+            signals, times, intervals, ids = [data[key] for key in ['dff', 't', 'T_k', 'neu_id']]
         indices = {int(neuron): i for i, neuron in enumerate(ids)}
         bump_parameters = parameters[parameters.session.eq(session)].set_index(['neu_id', 'anchoring'])
         for cell in saved.itertuples():
@@ -374,17 +344,7 @@ def extended_main():
                              above_half_pct=100 * (values > .5).mean()))
     summary = pd.DataFrame(rows)
     summary.to_csv(destination / 'summary.csv', index=False)
-    text = '# trial-averaged fit quality with the two-exponential bump\n\n'
-    text += 'The original Gaussian and exponential R2 values and the 12 saved example IDs are retained exactly, while the bump uses the same trial-bin mask, interpolation operator and minimum of 10 trials per averaged bin. Both ramp-up alignments are retained in the table; the figure uses next-lick alignment with negative time increasing towards zero. All curves are full-data fits, so these R2 values describe the fitted averages rather than held-out prediction.\n\n'
-    text += markdown(summary) + '\n\n' + markdown(anchoring[['group', 'median_session_contrast', 'wilcoxon_p']])
-    text += '\n\nThe primary anchoring is selected by the sign of the median session contrast: ' + ', '.join(f'{group}: {anchor}' for group, anchor in primary.items()) + '. The down and time-cell anchoring comparisons are not significant, and the time-cell median contrast is numerically close to zero.\n\n'
-    text += markdown(examples) + '\n\nCanvas: 13 by 14.5 inches; smallest font: 14 pt (7 pt at 6.5 inches wide). Original outputs and figures are preserved.\n'
     make_extended_figure(cells, examples, curves, FIGURES / 'fit_examples_two_exponential')
-    seconds = time.perf_counter() - started
-    text += f'\nWall time: {seconds:.1f} s.\n'
-    (destination / 'summary.md').write_text(text, encoding='utf-8')
-    (destination / 'run_report.json').write_text(json.dumps(dict(seconds=seconds, primary=primary), indent=2))
-    print(text, flush=True)
 
 
 if __name__ == '__main__':

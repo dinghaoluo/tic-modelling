@@ -146,18 +146,18 @@ def session_reference_test(parameters, group, quantity, reference, include_bound
     )
 
 
-def summary_box(axis, y, median, q25, q75, colour):
+def summary_box(axis, row_position, median, q25, q75, colour):
     height = .36
-    axis.add_patch(Rectangle((q25, y - height / 2), q75 - q25, height,
+    axis.add_patch(Rectangle((q25, row_position - height / 2), q75 - q25, height,
                              facecolor=colour, edgecolor=colour, alpha=.60))
-    axis.plot([median, median], [y - height / 2, y + height / 2],
+    axis.plot([median, median], [row_position - height / 2, row_position + height / 2],
               color='black', linewidth=1.3)
 
 
-def data_box(axis, y, data, colour):
+def data_box(axis, row_position, data, colour):
     axis.boxplot(
         [np.asarray(data, dtype=float)],
-        positions=[y],
+        positions=[row_position],
         vert=False,
         widths=.36,
         patch_artist=True,
@@ -201,11 +201,11 @@ def make_figure(parameters):
         (PUBLISHED['tau_up'], 2, None, COLOURS['published']),
         ({'label': LABELS['tic_up']}, 3, fitted_values(parameters, 'tic_up', 'tau', True)[0], COLOURS['tic_up']),
     ]
-    for row, y, data, colour in tau_rows:
+    for row, row_position, data, colour in tau_rows:
         if data is None:
-            summary_box(axis, y, row['median'], row['q25'], row['q75'], colour)
+            summary_box(axis, row_position, row['median'], row['q25'], row['q75'], colour)
         else:
-            data_box(axis, y, data, colour)
+            data_box(axis, row_position, data, colour)
     axis.set(yticks=[0, 1, 2, 3],
              yticklabels=[row[0]['label'] for row in tau_rows],
              xlabel='τ (s)', xlim=(0, 10.5))
@@ -219,11 +219,11 @@ def make_figure(parameters):
         (PUBLISHED['mu_up'], 2, None, COLOURS['published']),
         ({'label': LABELS['tic_up']}, 3, fitted_values(parameters, 'tic_up', 'peak', True)[0], COLOURS['tic_up']),
     ]
-    for row, y, data, colour in peak_rows:
+    for row, row_position, data, colour in peak_rows:
         if data is None:
-            summary_box(axis, y, row['median'], row['q25'], row['q75'], colour)
+            summary_box(axis, row_position, row['median'], row['q25'], row['q75'], colour)
         else:
-            data_box(axis, y, data, colour)
+            data_box(axis, row_position, data, colour)
     axis.axvline(0, color='#999999', linewidth=.8)
     axis.set(yticks=[0, 1, 2, 3],
              yticklabels=[row[0]['label'] for row in peak_rows],
@@ -302,15 +302,6 @@ def main():
     table = pd.DataFrame(rows)
     table.to_csv(OUTPUT / 'paper_parameter_comparison.csv', index=False)
 
-    report = [
-        '# fitted parameter comparison',
-        '',
-        f"Published alpha limits are the {PUBLISHED['alpha']['interval']}.",
-        'The parameter tables report censored values at their fitted bounds and the corresponding bound-excluded summaries.',
-        '',
-        table.to_string(index=False),
-    ]
-    (OUTPUT / 'paper_parameter_comparison.md').write_text('\n'.join(report) + '\n', encoding='utf-8')
     make_figure(parameters)
 
 
