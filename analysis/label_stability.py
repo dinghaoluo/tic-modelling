@@ -188,7 +188,7 @@ def main():
     frame = pd.concat([pd.read_csv(OUTPUT / f'{session}.csv') for session in SESSIONS_4S], ignore_index=True)
     labels = pd.read_csv(ROOT / 'data' / 'labels.csv')
     pd.testing.assert_frame_equal(frame[labels.columns].fillna(''), labels.fillna(''), check_dtype=False)
-    fits = pd.read_csv(ROOT / 'outputs' / 'fits_v1_2' / 'fits_all.csv', usecols=['session', 'neu_id', 'beats_flat'])
+    fits = pd.read_csv(ROOT / 'outputs' / 'fits' / 'fits_all.csv', usecols=['session', 'neu_id', 'beats_flat'])
     frame = frame.merge(fits, on=['session', 'neu_id'], how='left', validate='one_to_one')
     if frame.beats_flat.isna().any():
         raise ValueError('beats_flat missing for labelled neurons')

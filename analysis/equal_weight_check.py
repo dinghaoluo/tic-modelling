@@ -24,11 +24,11 @@ from scipy.stats import spearmanr
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from utils.rf_models_v1_2 import BOUNDS, compressed_observations, fit_field, _GRID_CACHE
+from utils.rf_models import BOUNDS, compressed_observations, fit_field, _GRID_CACHE
 from analysis.two_exponential import markdown
 
 OUTPUT = ROOT / 'outputs' / 'equal_weight_check'
-WIDER  = ROOT / 'outputs' / 'undecided_check'
+WIDER  = ROOT / 'outputs' / 'wider_window_fits'
 
 #%% equal-weight fits
 def retained_coordinates(name, t, interval, y, trial=None):
@@ -51,7 +51,7 @@ def session_job(path, rise_only=False):
     started = time.perf_counter()
     old = pd.read_csv(path)
     session = old.session.iloc[0]
-    data = np.load(ROOT / 'data' / 'binned_v1_3' / f'{session}.npz')
+    data = np.load(ROOT / 'data' / 'binned_wider' / f'{session}.npz')
     rows, failures = [], []
     indices = {int(neuron): i for i, neuron in enumerate(data['neu_id'])}
     for cell in old.itertuples():

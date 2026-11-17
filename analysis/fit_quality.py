@@ -16,10 +16,10 @@ import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from utils.rf_models_v1_2 import predict
+from utils.rf_models import predict
 
-DATA       = ROOT / 'data' / 'binned_v1_3'
-PARAMETERS = ROOT / 'outputs' / 'undecided_check'
+DATA       = ROOT / 'data' / 'binned_wider'
+PARAMETERS = ROOT / 'outputs' / 'wider_window_fits'
 OUTPUT     = ROOT / 'outputs' / 'fit_quality'
 FIGURES    = ROOT / 'figures'
 MIN_TRIALS = 10

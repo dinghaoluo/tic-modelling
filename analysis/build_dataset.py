@@ -24,7 +24,7 @@ from utils.matlab_inputs import Fluorescence, load_numeric
 from utils.project_paths import TABLES_ROOT
 
 #%% constants
-OUTPUT = ROOT / 'outputs' / 'fits_v1_1'
+OUTPUT = ROOT / 'outputs' / 'dataset'
 BIN_END = np.arange(1, 141) * .05
 BIN_TIME = BIN_END - .026
 
@@ -66,7 +66,7 @@ def source_labels():
 def main():
     started = time.perf_counter()
     OUTPUT.mkdir(parents=True, exist_ok=True)
-    (ROOT / 'data' / 'binned_v1_1').mkdir(parents=True, exist_ok=True)
+    (ROOT / 'data' / 'binned').mkdir(parents=True, exist_ok=True)
     tic = source_labels()
     labels, reports, alignment = [], [], []
     for session in SESSIONS_4S:
@@ -123,7 +123,7 @@ def main():
                     before_mean = np.sum(np.where(before, arr[r], 0.), axis=1) / before.sum(axis=1)
                     after_mean = np.sum(np.where(after, arr[r], 0.), axis=1) / after.sum(axis=1)
                     drops[offset].extend((before_mean - after_mean).tolist())
-            np.savez(ROOT / 'data' / 'binned_v1_1' / f'{session}.npz', dff=binned,
+            np.savez(ROOT / 'data' / 'binned' / f'{session}.npz', dff=binned,
                      T_k=interval, trial_rows=valid, t=BIN_TIME, bin_end=BIN_END)
             report = dict(session=session, neurons=reader.n_neurons, dff_rows=rows,
                           first_lick_length=len(first), source_trial_rows=rows,

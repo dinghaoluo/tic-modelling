@@ -25,12 +25,12 @@ sys.path.insert(0, str(ROOT))
 from utils.trial_error_scores import trial_mse
 from analysis.compare_models_trial import trial_loglikelihood, trial_contrast
 from analysis.compare_models import paired_test
-from utils.rf_models_v1_2 import BOUNDS
+from utils.rf_models import BOUNDS
 
 #%% constants
 OUTPUT = ROOT / 'outputs' / 'model_comparison'
 FIGURES = ROOT / 'figures'
-FITS = ROOT / 'outputs' / 'fits_v1_2'
+FITS = ROOT / 'outputs' / 'fits'
 GROUPS = ['tic_down', 'tic_up', 'time_cell']
 LABELS = ['Ramp-down TIC', 'Ramp-up TIC', 'Time cells']
 COLOURS = ['#228833', '#4477AA', '#9467BD']
@@ -44,7 +44,7 @@ def polynomial_session(session):
     started = time.perf_counter()
     fits = pd.read_csv(FITS / 'fits_all.csv')
     fits = fits[fits.session == session].reset_index(drop=True)
-    data = np.load(ROOT / 'data' / 'binned_v1_1' / f'{session}.npz')
+    data = np.load(ROOT / 'data' / 'binned' / f'{session}.npz')
     dff = data['dff']
     folds = np.load(FITS / f'{session}_folds.npz')
     np.testing.assert_array_equal(fits.neu_id, np.arange(1, len(dff) + 1))
@@ -143,7 +143,7 @@ def parameter_values(fits, group, measure, include_bound=False):
         if group == 'tic_up':
             intervals = {}
             for session in cells.session.drop_duplicates():
-                data = np.load(ROOT / 'data' / 'binned_v1_3' / f'{session}.npz')
+                data = np.load(ROOT / 'data' / 'binned_wider' / f'{session}.npz')
                 intervals[session] = float(np.nanmedian(data['T_k']))
             cells['peak_reference'] = cells.apply(lambda row: intervals[row.session] - row[parameter], axis=1)
             parameter = 'peak_reference'
@@ -406,7 +406,7 @@ def main():
 
 def wider_main():
     started = time.perf_counter()
-    wider_dir = ROOT / 'outputs' / 'undecided_check'
+    wider_dir = ROOT / 'outputs' / 'wider_window_fits'
     peak_dir = ROOT / 'outputs' / 'peak_position'
     os.environ['MPLCONFIGDIR'] = str(peak_dir / 'matplotlib')
     protected = {str(path): (path.stat().st_size, path.stat().st_mtime_ns)
@@ -533,7 +533,7 @@ if __name__ == '__main__':
         table = pd.read_csv(OUTPUT / ('summary_table_wider.csv' if args.wider else 'summary_table.csv'))
         if args.wider:
             parameters = pd.concat([pd.read_csv(path) for path in sorted(
-                (ROOT / 'outputs' / 'undecided_check').glob('*_wider_parameters.csv'))], ignore_index=True)
+                (ROOT / 'outputs' / 'wider_window_fits').glob('*_wider_parameters.csv'))], ignore_index=True)
             table = table[table['bound subset'].isna() | table['bound subset'].eq('included')]
         else:
             parameters = pd.read_csv(FITS / 'fits_all.csv')

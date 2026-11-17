@@ -22,12 +22,12 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from rec_list import SESSIONS_4S
-from utils.rf_models_v1_2 import BOUNDS, fit_field, predict, fit_scaling
+from utils.rf_models import BOUNDS, fit_field, predict, fit_scaling
 from utils.trial_error_scores import trial_mse, paired_gain, alignment_scores
 
 #%% constants
-OUTPUT = ROOT / 'outputs' / 'fits_v1_2'
-DATA = ROOT / 'data' / 'binned_v1_1'
+OUTPUT = ROOT / 'outputs' / 'fits'
+DATA = ROOT / 'data' / 'binned'
 SHAPES = ['gaussian', 'decay', 'rise']
 MODELS = ['flat', *SHAPES, 'poly1', 'poly2', 'poly3', 'poly4']
 SEED = 20261104

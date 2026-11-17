@@ -20,10 +20,10 @@ from scipy.optimize import minimize_scalar
 from scipy.stats import wilcoxon
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from utils.rf_models_v1_2 import BOUNDS
+from utils.rf_models import BOUNDS
 
-WIDER = ROOT / 'outputs' / 'undecided_check'
-OUTPUT = ROOT / 'outputs' / 'wider_evidence'
+WIDER = ROOT / 'outputs' / 'wider_window_fits'
+OUTPUT = ROOT / 'outputs' / 'parameter_comparison'
 FIGURES = ROOT / 'figures'
 
 LABELS = {

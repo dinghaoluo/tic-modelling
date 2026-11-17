@@ -26,11 +26,11 @@ from scipy.stats import wilcoxon
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from utils.rf_models_v1_2 import linear_amplitude
+from utils.rf_models import linear_amplitude
 from utils.trial_error_scores import trial_mse
 
-DATA   = ROOT / 'data' / 'binned_v1_3'
-WIDER  = ROOT / 'outputs' / 'undecided_check'
+DATA   = ROOT / 'data' / 'binned_wider'
+WIDER  = ROOT / 'outputs' / 'wider_window_fits'
 OUTPUT = ROOT / 'outputs' / 'two_exponential'
 GROUPS = ['tic_down', 'tic_up', 'time_cell']
 LOWER  = np.array([0., .1, .1])
@@ -137,7 +137,7 @@ def session_job(session):
     started = time.perf_counter()
     data = np.load(DATA / f'{session}.npz')
     signals, times, intervals, ids = [data[k] for k in ['dff', 't', 'T_k', 'neu_id']]
-    fold_data = np.load(ROOT / 'outputs' / 'fits_v1_2' / f'{session}_folds.npz')
+    fold_data = np.load(ROOT / 'outputs' / 'fits' / f'{session}_folds.npz')
     np.testing.assert_array_equal(data['trial_rows'], fold_data['trial_rows'])
     folds, bootstrap = fold_data['folds'], fold_data['bootstrap_trials']
     cells = pd.read_csv(WIDER / f'{session}_wider_parameters.csv').set_index('neu_id').loc[ids].reset_index()

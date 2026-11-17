@@ -22,17 +22,17 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from rec_list import SESSIONS_4S
-from utils.rf_models_v1_2 import fit_field
+from utils.rf_models import fit_field
 from utils.trial_error_scores import trial_mse
-from analysis.fit_shapes_v1_2 import cv_prediction
+from analysis.fit_shapes import cv_prediction
 from analysis.compare_models_trial import trial_contrast, trial_loglikelihood
 from analysis.compare_models import EXCLUDED, paired_test
 
 #%% constants
 OUTPUT  = ROOT / 'outputs' / 'peak_position'
 FIGURES = ROOT / 'figures' / 'peak_position'
-FITS    = ROOT / 'outputs' / 'fits_v1_2'
-WIDER   = ROOT / 'outputs' / 'undecided_check'
+FITS    = ROOT / 'outputs' / 'fits'
+WIDER   = ROOT / 'outputs' / 'wider_window_fits'
 GROUPS  = ['tic_down', 'tic_up', 'time_cell']
 LABELS  = ['Ramp-down TIC', 'Ramp-up TIC', 'Time cell']
 CLASSES = ['start', 'inside', 'end']
@@ -76,8 +76,8 @@ def session_analysis(session):
     folds = np.load(FITS / f'{session}_folds.npz')
     resamples = folds['bootstrap_trials']
     rows, sorts, failures, polynomial_rows = [], [], [], []
-    for window, folder, source in [('current', 'binned_v1_1', FITS / f'{session}_oof.h5'),
-                                    ('wider', 'binned_v1_3', WIDER / f'{session}_wider_oof.h5')]:
+    for window, folder, source in [('current', 'binned', FITS / f'{session}_oof.h5'),
+                                    ('wider', 'binned_wider', WIDER / f'{session}_wider_oof.h5')]:
         data = np.load(ROOT / 'data' / folder / f'{session}.npz')
         times, intervals = data['t'], data['T_k']
         np.testing.assert_array_equal(data['trial_rows'], folds['trial_rows'])

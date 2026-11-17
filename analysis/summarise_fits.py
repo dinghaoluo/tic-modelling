@@ -22,7 +22,7 @@ from analysis import summarise_fits_base_v1_2 as earlier
 from analysis.summarise_fits import GROUPS, SHAPES, PARAMS, number, table, session_average, distribution_row
 
 #%% constants
-OUTPUT = ROOT / 'outputs' / 'fits_v1_2'
+OUTPUT = ROOT / 'outputs' / 'fits'
 EXCLUDED = 'A132-20221124-02'
 
 #%% requested repeated sections

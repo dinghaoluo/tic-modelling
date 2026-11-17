@@ -26,8 +26,8 @@ from utils.project_paths import TABLES_ROOT
 #%% main
 def main():
     started = time.perf_counter()
-    output = ROOT / 'outputs' / 'fits_v1_1'
-    labels = pd.read_csv(ROOT / 'outputs' / 'fits_v1_1' / 'labels.csv')
+    output = ROOT / 'outputs' / 'dataset'
+    labels = pd.read_csv(ROOT / 'outputs' / 'dataset' / 'labels.csv')
     tic_source = matio.load_from_mat(str(TABLES_ROOT / 'RiseLastLickDownLickNeurons_thres.mat'))
     ids = tic_source['RiseLLDownLickNeuronID']
     expected = set(zip(ids.rec_name, ids.neu_id.astype(int)))

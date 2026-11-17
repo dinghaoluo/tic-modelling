@@ -24,15 +24,15 @@ from scipy.stats import binomtest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from rec_list import SESSIONS_4S
-from utils.rf_models_v1_2 import predict
+from utils.rf_models import predict
 from utils.trial_error_scores import trial_mse
-from analysis.fit_shapes_v1_2 import cv_prediction
+from analysis.fit_shapes import cv_prediction
 from analysis.compare_models_trial import trial_contrast, trial_loglikelihood
 
 #%% constants
-OUTPUT = ROOT / 'outputs' / 'undecided_check'
-FIGURES = ROOT / 'figures' / 'undecided_check'
-FITS = ROOT / 'outputs' / 'fits_v1_2'
+OUTPUT = ROOT / 'outputs' / 'wider_window_fits'
+FIGURES = ROOT / 'figures' / 'wider_window_fits'
+FITS = ROOT / 'outputs' / 'fits'
 GROUPS = ['tic_down', 'tic_up', 'time_cell']
 LABELS = ['Ramp-down TIC', 'Ramp-up TIC', 'Time cell']
 SEED = 20261105
@@ -106,7 +106,7 @@ def recovery_session(session):
     started = time.perf_counter()
     sample = pd.read_csv(OUTPUT / 'recovery_sample.csv')
     sample = sample[sample.session == session]
-    data = np.load(ROOT / 'data' / 'binned_v1_1' / f'{session}.npz')
+    data = np.load(ROOT / 'data' / 'binned' / f'{session}.npz')
     dff, times, intervals = data['dff'], data['t'], data['T_k']
     folds = np.load(FITS / f'{session}_folds.npz')
     np.testing.assert_array_equal(folds['trial_rows'], data['trial_rows'])

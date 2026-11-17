@@ -11,7 +11,7 @@ check revised bump endpoints, clipped onsets and plain exponential mirroring
 import numpy as np
 import pytest
 from scipy.optimize._numdiff import approx_derivative
-from analysis.two_exponential_v2 import (predict_model, model_shape, peak_and_onset,
+from analysis.revised_two_exponential import (predict_model, model_shape, peak_and_onset,
                                          fit_model)
 
 #%% tests

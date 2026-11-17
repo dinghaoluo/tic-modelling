@@ -22,7 +22,7 @@ sys.path.insert(0, str(ROOT))
 from rec_list import SESSIONS_4S
 
 #%% constants
-OUTPUT = ROOT / 'outputs' / 'fits_v1_2'
+OUTPUT = ROOT / 'outputs' / 'fits'
 GROUPS = ['tic_down', 'tic_up', 'time_cell', 'tic_and_time_cell', 'other']
 SHAPES = ['gaussian', 'decay', 'rise']
 PARAMS = ['gaussian_mu', 'gaussian_sigma', 'decay_mu', 'decay_tau', 'rise_mu', 'rise_tau']

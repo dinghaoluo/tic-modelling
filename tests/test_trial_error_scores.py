@@ -15,7 +15,7 @@ import numpy as np
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from utils.rf_models_v1_2 import BOUNDS, fit_field, predict
+from utils.rf_models import BOUNDS, fit_field, predict
 from utils.trial_error_scores import paired_gain, trial_mse, first_lick_align, alignment_scores
 
 #%% tests

@@ -31,7 +31,7 @@ def correlation(x,y):
 def main():
     started=time.perf_counter()
     OUTPUT.mkdir(parents=True,exist_ok=True)
-    parameters=pd.concat([pd.read_csv(p) for p in sorted((ROOT / 'outputs' / 'undecided_check').glob('*_wider_parameters.csv'))],ignore_index=True)
+    parameters=pd.concat([pd.read_csv(p) for p in sorted((ROOT / 'outputs' / 'wider_window_fits').glob('*_wider_parameters.csv'))],ignore_index=True)
     rows,sessions,retained=[],[],[]
     for group,x,y in [('tic_down','decay_mu','decay_tau'),('tic_up','rise_mu','rise_tau'),
                       ('time_cell','decay_mu','decay_tau'),('time_cell','gaussian_mu','gaussian_sigma')]:

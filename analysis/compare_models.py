@@ -19,10 +19,10 @@ from scipy.stats import linregress, spearmanr, wilcoxon
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from analysis.summarise_fits_v1_2 import earlier
+from analysis.summarise_fits import earlier
 
 #%% constants
-INPUT   = ROOT / 'outputs' / 'fits_v1_2' / 'fits_all.csv'
+INPUT   = ROOT / 'outputs' / 'fits' / 'fits_all.csv'
 OUTPUT  = ROOT / 'outputs' / 'model_comparison'
 FIGURES = ROOT / 'figures' / 'model_comparison'
 GROUPS  = ['tic_down', 'tic_up', 'time_cell', 'tic_and_time_cell', 'other']

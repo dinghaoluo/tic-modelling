@@ -23,8 +23,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from rec_list import SESSIONS_4S, session_path
 from utils.matlab_inputs import Fluorescence
-from utils.rf_models_v1_2 import BOUNDS, fit_field
-from analysis.fit_shapes_v1_2 import cv_prediction
+from utils.rf_models import BOUNDS, fit_field
+from analysis.fit_shapes import cv_prediction
 from analysis.compare_models_trial import CONTRASTS, PRIMARY, summary_row
 from analysis.compare_models import EXCLUDED
 from analysis.recovery_check import (OUTPUT, FIGURES, FITS, GROUPS, LABELS, matched_shape,
@@ -35,7 +35,7 @@ def wider_session(session):
     started = time.perf_counter()
     fits = pd.read_csv(FITS / 'fits_all.csv')
     fits = fits[fits.session == session].reset_index(drop=True)
-    old = np.load(ROOT / 'data' / 'binned_v1_1' / f'{session}.npz')
+    old = np.load(ROOT / 'data' / 'binned' / f'{session}.npz')
     np.testing.assert_array_equal(fits.neu_id, np.arange(1, len(old['dff']) + 1))
     selected = fits[fits.group.isin(GROUPS)].copy()
     folds = np.load(FITS / f'{session}_folds.npz')
@@ -51,7 +51,7 @@ def wider_session(session):
             values[bin_end[None, :] > intervals[:, None] + 1e-12] = np.nan
             binned[i] = values
             np.testing.assert_array_equal(binned[i, :, 20:], old['dff'][int(cell.neu_id) - 1])
-    np.savez(ROOT / 'data' / 'binned_v1_3' / f'{session}.npz', dff=binned, T_k=intervals,
+    np.savez(ROOT / 'data' / 'binned_wider' / f'{session}.npz', dff=binned, T_k=intervals,
              trial_rows=trial_rows, t=times, bin_end=bin_end, neu_id=selected.neu_id.to_numpy())
     full_rows, rows, failures = [], [], []
     with h5py.File(OUTPUT / f'{session}_wider_oof.h5', 'w') as saved:
@@ -237,11 +237,11 @@ def earlier_files():
 
 def main():
     started = time.perf_counter()
-    if (OUTPUT / 'recovery_cells.csv').exists() or (ROOT / 'data' / 'binned_v1_3').exists():
+    if (OUTPUT / 'recovery_cells.csv').exists() or (ROOT / 'data' / 'binned_wider').exists():
         raise ValueError('new run destinations already contain results; do not overwrite')
     OUTPUT.mkdir(parents=True, exist_ok=True)
     FIGURES.mkdir(parents=True, exist_ok=True)
-    (ROOT / 'data' / 'binned_v1_3').mkdir()
+    (ROOT / 'data' / 'binned_wider').mkdir()
     prior = earlier_files()
     (OUTPUT / 'earlier_files_before.json').write_text(json.dumps(prior, indent=2))
     sample_cells()

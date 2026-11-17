@@ -22,11 +22,11 @@ import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
-from utils.rf_models_v1_2 import fit_field, predict, _GRID_CACHE
+from utils.rf_models import fit_field, predict, _GRID_CACHE
 from utils.trial_error_scores import trial_mse
 from analysis.two_exponential import contrast_row, signed_test, markdown
 
-WIDER  = ROOT / 'outputs' / 'undecided_check'
+WIDER  = ROOT / 'outputs' / 'wider_window_fits'
 OUTPUT = ROOT / 'outputs' / 'gaussian_wide'
 BOUNDS = (np.array([-1., .05]), np.array([7., 10.]))
 
@@ -35,8 +35,8 @@ def session_job(path):
     started = time.perf_counter()
     parameters = pd.read_csv(path)
     session = parameters.session.iloc[0]
-    data = np.load(ROOT / 'data' / 'binned_v1_3' / f'{session}.npz')
-    fold_data = np.load(ROOT / 'outputs' / 'fits_v1_2' / f'{session}_folds.npz')
+    data = np.load(ROOT / 'data' / 'binned_wider' / f'{session}.npz')
+    fold_data = np.load(ROOT / 'outputs' / 'fits' / f'{session}_folds.npz')
     np.testing.assert_array_equal(data['trial_rows'], fold_data['trial_rows'])
     old_contrasts = pd.read_csv(WIDER / f'{session}_wider_contrasts.csv')
     folds, bootstrap = fold_data['folds'],fold_data['bootstrap_trials']

@@ -71,7 +71,7 @@ def valid_trial_rows(start, end, licks):
 def main():
     started = time.perf_counter()
     target = ROOT / 'data' / 'valid_trials'
-    output = ROOT / 'outputs' / 'fits_v1'
+    output = ROOT / 'outputs' / 'initial_fits'
     target.mkdir(parents=True, exist_ok=True)
     output.mkdir(parents=True, exist_ok=True)
     checks = []

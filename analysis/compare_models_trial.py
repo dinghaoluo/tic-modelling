@@ -28,7 +28,7 @@ from analysis.compare_models import GROUPS, EXCLUDED, paired_test, markdown
 #%% constants
 OUTPUT = ROOT / 'outputs' / 'model_comparison'
 FIGURES = ROOT / 'figures' / 'model_comparison'
-FITS = ROOT / 'outputs' / 'fits_v1_2'
+FITS = ROOT / 'outputs' / 'fits'
 MODELS = ['flat', 'gaussian', 'decay', 'rise', 'poly4']
 CONTRASTS = [('gaussian', 'decay'), ('gaussian', 'rise'), ('decay', 'rise')]
 PRIMARY = {('tic_down', 'gaussian_minus_decay'), ('tic_up', 'gaussian_minus_rise'),
@@ -52,7 +52,7 @@ def check_session(session):
     started = time.perf_counter()
     cells = pd.read_csv(FITS / 'fits_all.csv')
     cells = cells[cells.session == session].reset_index(drop=True)
-    with np.load(ROOT / 'data' / 'binned_v1_1' / f'{session}.npz') as data:
+    with np.load(ROOT / 'data' / 'binned' / f'{session}.npz') as data:
         signal = data['dff']
         trial_rows = data['trial_rows']
     np.testing.assert_array_equal(cells.neu_id, np.arange(1, len(signal) + 1),

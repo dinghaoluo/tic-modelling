@@ -18,9 +18,9 @@ import pandas as pd
 from scipy.stats import wilcoxon
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from utils.rf_models_v1_2 import BOUNDS
-WIDER = ROOT / 'outputs' / 'undecided_check'
-OUTPUT = ROOT / 'outputs' / 'wider_evidence'
+from utils.rf_models import BOUNDS
+WIDER = ROOT / 'outputs' / 'wider_window_fits'
+OUTPUT = ROOT / 'outputs' / 'parameter_comparison'
 FIGURES = ROOT / 'figures'
 
 GROUPS = ['tic_down', 'tic_up', 'time_cell']

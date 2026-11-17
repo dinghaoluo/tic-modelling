@@ -11,7 +11,7 @@ check bump endpoints, exact compression and equal time-bin weights
 import numpy as np
 import pytest
 from analysis.two_exponential import predict_bump, compress_pairs, fit_bump
-from utils.rf_models_v1_2 import fit_field, predict
+from utils.rf_models import fit_field, predict
 
 #%% tests
 @pytest.mark.parametrize('anchor', ['last', 'next'])
