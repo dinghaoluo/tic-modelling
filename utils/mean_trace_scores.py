@@ -22,14 +22,14 @@ def mean_trace_scores(signal, prediction, weights=None):
     eligible = counts >= 10
     if np.any(eligible.sum(axis=1) == 0):
         raise ValueError('no bins have at least ten resampled trials')
-    y_sum = weights @ np.where(observed, signal, 0.)
-    p_sum = weights @ np.where(observed, prediction, 0.)
-    y_mean = np.divide(y_sum, counts, out=np.zeros_like(y_sum), where=counts > 0)
-    p_mean = np.divide(p_sum, counts, out=np.zeros_like(p_sum), where=counts > 0)
+    observed_sum = weights @ np.where(observed, signal, 0.)
+    predicted_sum = weights @ np.where(observed, prediction, 0.)
+    observed_mean = np.divide(observed_sum, counts, out=np.zeros_like(observed_sum), where=counts > 0)
+    predicted_mean = np.divide(predicted_sum, counts, out=np.zeros_like(predicted_sum), where=counts > 0)
     n_bins = eligible.sum(axis=1)
-    sse = np.sum(np.where(eligible, (y_mean - p_mean) ** 2, 0.), axis=1)
-    centre = np.sum(np.where(eligible, y_mean, 0.), axis=1) / n_bins
-    sst = np.sum(np.where(eligible, (y_mean - centre[:, None]) ** 2, 0.), axis=1)
+    sse = np.sum(np.where(eligible, (observed_mean - predicted_mean) ** 2, 0.), axis=1)
+    centre = np.sum(np.where(eligible, observed_mean, 0.), axis=1) / n_bins
+    sst = np.sum(np.where(eligible, (observed_mean - centre[:, None]) ** 2, 0.), axis=1)
     r2 = 1 - np.divide(sse, sst, out=np.full_like(sse, np.nan), where=sst > 0)
     with np.errstate(divide='ignore'):
         loglik = -n_bins / 2 * np.log(sse / n_bins)

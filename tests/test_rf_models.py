@@ -27,8 +27,8 @@ from utils.rf_models import fit_field, predict
 def test_noiseless_recovery(name, params):
     '''trial-specific rise coordinates must recover the same generating parameters'''
     interval = np.repeat(np.array([3.7, 4.1, 4.6]), 70)
-    t = np.concatenate([np.linspace(.025, end - .025, 70) for end in [3.7, 4.1, 4.6]])
-    y = predict(name, t, interval, params)
-    fitted, success = fit_field(name, t, interval, y)
+    bin_times = np.concatenate([np.linspace(.025, end - .025, 70) for end in [3.7, 4.1, 4.6]])
+    observed_values = predict(name, bin_times, interval, params)
+    fitted, success = fit_field(name, bin_times, interval, observed_values)
     assert success
     np.testing.assert_allclose(fitted, params, rtol=1e-4, atol=1e-5)

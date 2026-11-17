@@ -21,7 +21,7 @@ def test_adjacent_trials_and_uncomputed_edges():
     '''trial one and the final trial stay zero even if their licks would pass'''
     start = np.arange(7) * 3000.
     end = start + 2000.
-    licks = [np.array([s + 600., s + 1200.]) for s in start]
+    licks = [np.array([trial_starts + 600., trial_starts + 1200.]) for trial_starts in start]
     licks[3] = np.array([])
     expected_passes = np.array([False, True, True, False, True, True, False])
     expected = np.flatnonzero(expected_passes[:-1] & expected_passes[1:]) + 1
@@ -34,7 +34,7 @@ def test_adjacent_trials_and_uncomputed_edges():
 def test_thresholds_are_strict():
     start = np.arange(5) * 3000.
     end = start + 2000.
-    licks = [np.array([s + 600., s + 1200.]) for s in start]
+    licks = [np.array([trial_starts + 600., trial_starts + 1200.]) for trial_starts in start]
     licks[1] = np.array([start[1] + 500., start[1] + 1200.])
     licks[2] = np.array([start[2] + 600., end[2] - 450.])
     expected_passes = np.array([False, False, False, True, False])

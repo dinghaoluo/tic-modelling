@@ -51,8 +51,8 @@ class Fluorescence:
 
 def load_numeric(path: Path):
     if h5py.is_hdf5(path):
-        with h5py.File(path, 'r') as f:
-            return {key: np.asarray(value).T for key, value in f.items()
+        with h5py.File(path, 'r') as saved:
+            return {key: np.asarray(value).T for key, value in saved.items()
                     if not key.startswith('#')}
     return {key: value for key, value in loadmat(str(path)).items()
             if not key.startswith('__')}

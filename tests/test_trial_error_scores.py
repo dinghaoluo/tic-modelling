@@ -23,9 +23,9 @@ from utils.trial_error_scores import paired_gain, trial_mse, first_lick_align, a
 def test_negative_mu_recovery(name):
     '''the revised lower bound must admit a generating centre before zero'''
     interval = np.repeat([3.7, 4.1, 4.6], 70)
-    t = np.concatenate([np.linspace(.024, end - .026, 70) for end in [3.7, 4.1, 4.6]])
+    bin_times = np.concatenate([np.linspace(.024, end - .026, 70) for end in [3.7, 4.1, 4.6]])
     params = np.array([.2, 1.4, -.15, .7 if name == 'gaussian' else 1.7])
-    fitted, success = fit_field(name, t, interval, predict(name, t, interval, params))
+    fitted, success = fit_field(name, bin_times, interval, predict(name, bin_times, interval, params))
     assert BOUNDS[name][0][0] == -1
     assert success
     np.testing.assert_allclose(fitted, params, rtol=2e-4, atol=2e-5)

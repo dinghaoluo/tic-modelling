@@ -20,10 +20,10 @@ from utils.trial_error_scores import trial_mse
 #%% test
 def test_per_trial_likelihood_contrast():
     '''the common variance cancels constants without weighting longer trials more'''
-    y = np.array([[0., 0., np.nan], [0., 0., 0.]])
-    a = np.array([[1., 1., np.nan], [2., 2., 2.]])
-    b = np.array([[2., 2., np.nan], [3., 3., 3.]])
-    mse_a, mse_b = trial_mse(y, a), trial_mse(y, b)
+    observed_values = np.array([[0., 0., np.nan], [0., 0., 0.]])
+    model_a = np.array([[1., 1., np.nan], [2., 2., 2.]])
+    model_b = np.array([[2., 2., np.nan], [3., 3., 3.]])
+    mse_a, mse_b = trial_mse(observed_values, model_a), trial_mse(observed_values, model_b)
     variance = 2.
     difference = trial_contrast(mse_a, mse_b, variance)
     np.testing.assert_allclose(difference, [.75, 1.25])

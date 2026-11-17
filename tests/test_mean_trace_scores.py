@@ -22,11 +22,11 @@ def test_mean_scores_use_same_trials_and_bin_threshold():
     signal[:3, 2] = np.nan
     prediction = signal + .2
     ll, r2, bins = mean_trace_scores(signal, prediction)
-    y = np.array([1., 2.])
-    sse = np.sum(np.full_like(y, .2) ** 2)
-    np.testing.assert_allclose(ll, -len(y) / 2 * np.log(sse / len(y)))
-    np.testing.assert_allclose(r2, 1 - sse / np.sum((y - y.mean()) ** 2))
-    assert bins[0] == len(y)
+    observed_values = np.array([1., 2.])
+    sse = np.sum(np.full_like(observed_values, .2) ** 2)
+    np.testing.assert_allclose(ll, -len(observed_values) / 2 * np.log(sse / len(observed_values)))
+    np.testing.assert_allclose(r2, 1 - sse / np.sum((observed_values - observed_values.mean()) ** 2))
+    assert bins[0] == len(observed_values)
 
 
 def test_weighted_bootstrap_matches_explicit_trial_resampling():
@@ -39,5 +39,5 @@ def test_weighted_bootstrap_matches_explicit_trial_resampling():
     actual = mean_trace_scores(signal, prediction, weights)
     for i, indices in enumerate(samples):
         expected = mean_trace_scores(signal[indices], prediction[indices])
-        for a, e in zip(actual, expected):
-            np.testing.assert_allclose(a[i], e[0])
+        for actual_value, expected_value in zip(actual, expected):
+            np.testing.assert_allclose(actual_value[i], expected_value[0])

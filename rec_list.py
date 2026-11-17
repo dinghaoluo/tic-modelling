@@ -33,7 +33,7 @@ SESSIONS_4S = [
     'A215-20251013-02',
     ]
 
-# the 2022 and 2023 sessions keep their outputs in a Gaussian-filter subfolder
+
 _FIRST_ANIMAL_WITHOUT_SUBFOLDER = 200
 
 #%% helpers

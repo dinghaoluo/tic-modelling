@@ -22,9 +22,9 @@ def test_categories_sum_to_one_hundred():
     cells = pd.DataFrame({'session': ['a', 'a', 'b', 'b'],
                           'mean_contrast': [1., 2., -1., 0.],
                           'decision': ['poly4', 'poly4', 'poly1', 'undecided']})
-    percentages, p, n_sessions = category_summary(cells, 'poly4', 'poly1')
+    percentages, p_value, n_sessions = category_summary(cells, 'poly4', 'poly1')
     np.testing.assert_allclose(percentages, [50., 25., 25.])
-    assert n_sessions == 2 and 0 <= p <= 1
+    assert n_sessions == 2 and 0 <= p_value <= 1
     assert p_label(.0001) == 'p < 0.001'
     assert p_label(.2) == 'p = 0.20 (n.s.)'
 

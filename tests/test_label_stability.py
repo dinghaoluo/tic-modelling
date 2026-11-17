@@ -19,15 +19,15 @@ from analysis.label_stability import lick_ratio, trial_masks, split_correlation
 #%% tests
 def test_trial_masks_and_stable_top_removal():
     '''odd rows are one-based and top trials are removed using last-lick activity'''
-    arr = np.zeros((11, 5000))
-    arr[3, 1250:1750] = 10
-    arr[7, 1250:1750] = 10
-    masks, removed = trial_masks(arr)
+    raw_dff = np.zeros((11, 5000))
+    raw_dff[3, 1250:1750] = 10
+    raw_dff[7, 1250:1750] = 10
+    masks, removed = trial_masks(raw_dff)
     np.testing.assert_array_equal(np.flatnonzero(masks['odd']), [0, 2, 4, 6, 8, 10])
     np.testing.assert_array_equal(np.flatnonzero(masks['even']), [1, 3, 5, 7, 9])
     np.testing.assert_array_equal(removed, [3, 7])
     assert not masks['drop_top'][removed].any()
-    assert masks['drop_top'].sum() == len(arr) - len(removed)
+    assert masks['drop_top'].sum() == len(raw_dff) - len(removed)
 
 
 def test_full_profile_normalisation_and_ratio():
