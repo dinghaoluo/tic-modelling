@@ -8,9 +8,7 @@ compare saved likelihoods and fitted parameter distributions without refitting
 '''
 
 #%% imports
-import json
 import sys
-import time
 from pathlib import Path
 
 import numpy as np
@@ -84,12 +82,12 @@ def population_table(frame):
             for contrast in contrasts:
                 values = contrasts[contrast]
                 medians = values.groupby(cells.session).median()
-                statistic, p = paired_test(medians)
+                statistic, p_value = paired_test(medians)
                 rows.append(dict(subset=subset, group=group, contrast=contrast, n_cells=len(cells),
                                  median_difference=values.median(), pct_above_zero=100 * (values > 0).mean(),
                                  summed_difference=values.sum(), n_sessions=len(medians),
                                  n_sessions_positive_median=int((medians > 0).sum()),
-                                 wilcoxon_statistic=statistic, wilcoxon_p=p, **benchmarks))
+                                 wilcoxon_statistic=statistic, wilcoxon_p=p_value, **benchmarks))
                 session_rows.extend([dict(subset=subset, group=group, contrast=contrast,
                                           session=session, median_difference=value,
                                           n_cells=int((cells.session == session).sum()))
@@ -137,27 +135,27 @@ def parameter_table(frame):
                 for metric in ['median', 'sd']:
                     differences, a_values, b_values, sessions = [], [], [], []
                     for session in frame.session.drop_duplicates():
-                        a = left[left.session == session][a_column]
-                        b = right[right.session == session][b_column]
-                        if len(a) < 5 or len(b) < 5:
+                        group_values = left[left.session == session][a_column]
+                        time_cell_values = right[right.session == session][b_column]
+                        if len(group_values) < 5 or len(time_cell_values) < 5:
                             continue
-                        a_value, b_value = stats(a)[metric], stats(b)[metric]
+                        a_value, b_value = stats(group_values)[metric], stats(time_cell_values)[metric]
                         differences.append(a_value - b_value)
                         a_values.append(a_value)
                         b_values.append(b_value)
                         sessions.append(session)
                         pairs.append(dict(group=group, comparison_group='time_cell', parameter=parameter,
                                           group_parameter=a_column, comparison_parameter=b_column, bounds=mode,
-                                          metric=metric, session=session, n_group=len(a), n_time_cell=len(b),
+                                          metric=metric, session=session, n_group=len(group_values), n_time_cell=len(time_cell_values),
                                           group_value=a_value, time_cell_value=b_value, difference=a_value - b_value))
-                    statistic, p = paired_test(differences)
+                    statistic, p_value = paired_test(differences)
                     rows.append(dict(analysis='paired_session_wilcoxon', group=group, comparison_group='time_cell',
                                      parameter=parameter, group_parameter=a_column, comparison_parameter=b_column,
                                      bounds=mode, metric=metric, n_sessions=len(sessions),
                                      group_session_value_median=np.median(a_values) if a_values else np.nan,
                                      time_cell_session_value_median=np.median(b_values) if b_values else np.nan,
                                      session_difference_median=np.median(differences) if differences else np.nan,
-                                     wilcoxon_statistic=statistic, wilcoxon_p=p, sessions=';'.join(sessions)))
+                                     wilcoxon_statistic=statistic, wilcoxon_p=p_value, sessions=';'.join(sessions)))
     return pd.DataFrame(rows), pd.DataFrame(pairs)
 
 
@@ -265,7 +263,7 @@ def make_figures(frame, published):
     plt.close(fig)
 
 
-#%% output checks and report
+#%% tables
 def markdown(frame):
     def show(value):
         if pd.isna(value):
@@ -278,7 +276,6 @@ def markdown(frame):
 
 
 def main():
-    started = time.perf_counter()
     OUTPUT.mkdir(parents=True, exist_ok=True)
     FIGURES.mkdir(parents=True, exist_ok=True)
     frame = pd.read_csv(INPUT)
@@ -304,41 +301,6 @@ def main():
                          ('parameters', parameters), ('parameter_session_pairs', pairs), ('literature', literature)]:
         values.to_csv(OUTPUT / f'{name}.csv', index=False)
     make_figures(frame, published)
-    issues = []
-    for i, row in parameters.iterrows():
-        if row.analysis == 'paired_session_wilcoxon' and row.n_sessions == 0:
-            issues.append(f'parameters.csv row {i + 2}: no eligible paired sessions')
-        if row.analysis == 'distribution' and row.n_cells == 0:
-            issues.append(f'parameters.csv row {i + 2}: no cells after bound exclusion')
-        if row.analysis == 'spearman' and not np.isfinite(row.correlation):
-            issues.append(f'parameters.csv row {i + 2}: undefined correlation')
-    slope = literature[literature.metric == 'width_on_peak_slope'].iloc[0]
-    if slope.our_value < 0 < slope.published_value:
-        issues.append('literature.csv: width_on_peak_slope is negative while the supplied published slope is positive; retained without filtering or correction')
-    summary = '# Saved-model comparison\n\n'
-    summary += ('All cells are retained, without filtering on beats_flat, preferred or fit_success. '
-                'Likelihoods are the saved mean-trace held-out scores, not trial-wise Gaussian noise likelihoods; '
-                'a positive contrast favours the Gaussian. The restricted likelihood table excludes the named sessions only.\n\n'
-                'Parameter variance and SD use the sample convention. Individual parameter bound percentages use that parameter flag; '
-                'tau exclusion and correlation exclusion use any bound flag of the corresponding shape. '
-                'Paired parameter tests use sessions with at least five retained cells in each group, '
-                'and matched tau is decay for tic_down and time_cell, rise for tic_up.\n\n'
-                'The time-cell peak exponent uses all time_cell rows within the existing peak limits, '
-                'with the existing estimator and session-resampling interval. The width slope is ordinary least squares with an intercept '
-                'on all time_cell rows. Published benchmarks are descriptive comparisons, not tests of equivalence.\n\n')
-    for heading, values in [('Population likelihoods', population), ('Session likelihood medians', medians)]:
-        summary += f'## {heading}\n\n' + markdown(values) + '\n\n'
-    for analysis, values in parameters.groupby('analysis', sort=False):
-        summary += f'## Parameters: {analysis}\n\n' + markdown(values.dropna(axis=1, how='all')) + '\n\n'
-    summary += '## Paired parameter session values\n\n' + markdown(pairs) + '\n\n'
-    summary += '## Published benchmarks\n\n' + markdown(literature) + '\n\n'
-    summary += '## Output checks\n\n' + ('\n'.join(issues) if issues else 'No undefined required output rows were found.') + '\n'
-    (OUTPUT / 'summary.md').write_text(summary)
-    report = dict(seconds=time.perf_counter() - started, interpreter=sys.executable, input=str(INPUT),
-                  cells=len(frame), sessions=int(frame.session.nunique()), processes=1, issues=issues,
-                  unfiltered_failed_fit_cells=int((~frame.fit_success).sum()))
-    (OUTPUT / 'run_report.json').write_text(json.dumps(report, indent=2))
-    print(json.dumps(report, indent=2), flush=True)
 
 
 if __name__ == '__main__':

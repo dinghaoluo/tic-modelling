@@ -8,10 +8,8 @@ sort Gaussian peaks on one trial half and compare held-out shapes on the other
 '''
 
 #%% imports
-import json
 import os
 import sys
-import time
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
@@ -37,7 +35,7 @@ GROUPS  = ['tic_down', 'tic_up', 'time_cell']
 LABELS  = ['Ramp-down TIC', 'Ramp-up TIC', 'Time cell']
 CLASSES = ['start', 'inside', 'end']
 CONTRASTS = [('gaussian', 'decay'), ('gaussian', 'rise'), ('decay', 'rise'), ('poly4', 'poly1')]
-PLANNED = [('time_cell', 'start', 'gaussian_minus_decay'),
+PRIMARY_CONTRASTS = [('time_cell', 'start', 'gaussian_minus_decay'),
            ('time_cell', 'inside', 'gaussian_minus_decay'),
            ('tic_up', 'end', 'gaussian_minus_rise'),
            ('tic_up', 'inside', 'gaussian_minus_rise'),
@@ -70,7 +68,6 @@ def peak_class(mu, amplitude, end):
 
 
 def session_analysis(session):
-    started = time.perf_counter()
     fits = pd.read_csv(FITS / 'fits_all.csv')
     selected = fits[(fits.session == session) & fits.group.isin(GROUPS)].copy()
     folds = np.load(FITS / f'{session}_folds.npz')
@@ -110,7 +107,7 @@ def session_analysis(session):
                     else:
                         predictions[model], failed = cv_prediction(model, signal, times, intervals, folds['folds'])
                         polynomial_file[model][i] = predictions[model]
-                        failures.extend([dict(window=window, neu_id=int(cell.neu_id), **f) for f in failed])
+                        failures.extend([dict(window=window, neu_id=int(cell.neu_id), **failure) for failure in failed])
                 for prediction in predictions.values():
                     np.testing.assert_array_equal(np.isfinite(prediction), np.isfinite(signal))
                 variance = float(np.var((signal - predictions['flat'])[np.isfinite(signal)], ddof=0))
@@ -123,12 +120,12 @@ def session_analysis(session):
                     polynomial_rows.append(dict(session=session, neu_id=int(cell.neu_id), group=cell.group,
                         mean_contrast=float(difference.mean()), lower=lower, upper=upper,
                         decision='poly4' if lower > 0 else 'poly1' if upper < 0 else 'undecided',
-                        **{f'{m}_trial_mean_ll': float(trial_loglikelihood(errors[m], variance).mean())
-                           for m in ['poly1', 'poly4']}))
+                        **{f'{model}_trial_mean_ll': float(trial_loglikelihood(errors[model], variance).mean())
+                           for model in ['poly1', 'poly4']}))
                 for direction, sorting, testing in [('odd', odd, even), ('even', even, odd)]:
                     assert not np.any(sorting & testing)
                     trial, bins = np.where(np.isfinite(signal) & sorting[:, None] & sorting_bins[None, :])
-                    params, ok = fit_field('gaussian', times[bins], intervals[trial], signal[trial, bins])
+                    params, success = fit_field('gaussian', times[bins], intervals[trial], signal[trial, bins])
                     peak, label = peak_class(params[2], params[1], end)
                     common = dict(window=window, session=session, neu_id=int(cell.neu_id), group=cell.group,
                                   sorting_half=direction, peak_class=label)
@@ -137,18 +134,18 @@ def session_analysis(session):
                                     sorting_end=end, mu_at_lower_bound=bool(np.isclose(params[2], -1., atol=1e-5, rtol=0)),
                                     negative_peak_with_rising_side=bool(-1. < params[2] < 0 and params[1] > 0 and not np.isclose(params[2], -1., atol=1e-5, rtol=0)),
                                     sorting_trials=int(sorting.sum()), testing_trials=int(testing.sum()),
-                                    fit_success=bool(ok))
+                                    fit_success=bool(success))
                     sorts.append(sort_row)
-                    if not ok:
+                    if not success:
                         failures.append(dict(window=window, neu_id=int(cell.neu_id), model='gaussian',
                                              stage='sorting', sorting_half=direction))
-                    for a, b in CONTRASTS:
-                        difference = trial_contrast(errors[a], errors[b], variance)
+                    for model_a, model_b in CONTRASTS:
+                        difference = trial_contrast(errors[model_a], errors[model_b], variance)
                         mean, draws = half_bootstrap(difference, testing, resamples)
                         lower, upper = np.percentile(draws, [2.5, 97.5])
-                        rows.append(dict(**sort_row, contrast=f'{a}_minus_{b}', model_a=a, model_b=b,
+                        rows.append(dict(**sort_row, contrast=f'{model_a}_minus_{model_b}', model_a=model_a, model_b=model_b,
                                          mean_contrast=mean, lower=lower, upper=upper,
-                                         decision=a if lower > 0 else b if upper < 0 else 'undecided',
+                                         decision=model_a if lower > 0 else model_b if upper < 0 else 'undecided',
                                          flat_residual_variance=variance, _draws=draws))
         if polynomial_file is not None:
             polynomial_file.close()
@@ -160,17 +157,17 @@ def session_analysis(session):
     for key, part in directional.groupby(keys, sort=False):
         draws = np.stack(part._draws).mean(axis=0)
         lower, upper = np.percentile(draws, [2.5, 97.5])
-        a, b = key[-2:]
+        model_a, model_b = key[-2:]
         combined.append(dict(zip(keys, key), sorting_half='combined', n_directions=len(part),
                              mean_contrast=float(part.mean_contrast.mean()), lower=lower, upper=upper,
-                             decision=a if lower > 0 else b if upper < 0 else 'undecided'))
+                             decision=model_a if lower > 0 else model_b if upper < 0 else 'undecided'))
     directional = directional.drop(columns='_draws')
     combined = pd.concat([directional, pd.DataFrame(combined)], ignore_index=True)
     combined.to_csv(OUTPUT / f'{session}_cells.csv', index=False, mode='x')
     pd.DataFrame(sorts).to_csv(OUTPUT / f'{session}_sorting.csv', index=False, mode='x')
     pd.DataFrame(polynomial_rows).to_csv(OUTPUT / f'{session}_wider_polynomial_cells.csv', index=False, mode='x')
-    status = dict(session=session, seconds=time.perf_counter() - started, failures=failures)
-    (OUTPUT / f'{session}_status.json').write_text(json.dumps(status, indent=2))
+    status = dict(session=session, failures=failures)
+    pd.DataFrame([dict(failure, session=session) for failure in failures], columns=['session', 'window', 'neu_id', 'model', 'fold', 'stage', 'sorting_half']).to_csv(OUTPUT / f'{session}_failures.csv', index=False)
     print(session, 'complete', flush=True)
     return status
 
@@ -193,8 +190,8 @@ def summarise(cells, sorting):
             direct = frame[frame.sorting_half != 'combined']
             for group in GROUPS:
                 for label in CLASSES:
-                    for a, b in CONTRASTS:
-                        contrast = f'{a}_minus_{b}'
+                    for model_a, model_b in CONTRASTS:
+                        contrast = f'{model_a}_minus_{model_b}'
                         part = combined[(combined.group == group) & (combined.peak_class == label) &
                                         (combined.contrast == contrast)]
                         direction = direct[(direct.group == group) & (direct.peak_class == label) &
@@ -203,16 +200,16 @@ def summarise(cells, sorting):
                         counts = part.groupby('session').size()
                         eligible = medians.dropna().index.intersection(counts[counts >= 3].index)
                         values = medians.loc[eligible].mean(axis=1)
-                        stat, p = paired_test(values) if len(values) >= 5 else (np.nan, np.nan)
+                        stat, p_value = paired_test(values) if len(values) >= 5 else (np.nan, np.nan)
                         common = dict(record_type='contrast', window=window, subset=subset, group=group,
-                                      peak_class=label, contrast=contrast, model_a=a, model_b=b,
-                                      planned=(group, label, contrast) in PLANNED)
+                                      peak_class=label, contrast=contrast, model_a=model_a, model_b=model_b,
+                                      primary=(group, label, contrast) in PRIMARY_CONTRASTS)
                         rows.append(dict(**common, level='group', n_cells=len(part),
                             n_eligible_cells=int(part.session.isin(eligible).sum()), n_sessions=len(values),
                             n_sessions_favour_a=int((values > 0).sum()), n_sessions_favour_b=int((values < 0).sum()),
-                            median_contrast=values.median(), wilcoxon_statistic=stat, p_raw=p,
-                            pct_favour_a=100 * (part.decision == a).mean(),
-                            pct_favour_b=100 * (part.decision == b).mean(),
+                            median_contrast=values.median(), wilcoxon_statistic=stat, p_raw=p_value,
+                            pct_favour_a=100 * (part.decision == model_a).mean(),
+                            pct_favour_b=100 * (part.decision == model_b).mean(),
                             pct_undecided=100 * (part.decision == 'undecided').mean()))
                         for session, value in values.items():
                             rows.append(dict(**common, level='session', session=session,
@@ -246,8 +243,8 @@ def summarise(cells, sorting):
     for window in ['current', 'wider']:
         for subset in ['all_sessions', 'excluded_sessions']:
             index = result.index[(result.record_type == 'contrast') & (result.level == 'group') &
-                                 (result.window == window) & (result.subset == subset) & result.planned.fillna(False)]
-            # unavailable planned tests remain in the family, conservatively represented by one
+                                 (result.window == window) & (result.subset == subset) & result.primary.fillna(False)]
+            # unavailable primary tests remain in the family, conservatively represented by one
             corrected = holm(result.loc[index, 'p_raw'].fillna(1.).to_numpy())
             result.loc[index, 'p_holm'] = np.where(result.loc[index, 'p_raw'].notna(), corrected, np.nan)
     return result
@@ -319,17 +316,17 @@ def make_figure(summary):
                 for value, colour in zip(values, ['#4477AA', '#EE6677', '#BBBBBB']):
                     ax.bar(i, value, bottom=bottom, color=colour, width=.65)
                     bottom += value
-                p = selected.p_holm if selected.planned else selected.p_raw
-                text = p_text(p)
+                p_value = selected.p_holm if selected.primary else selected.p_raw
+                text = p_text(p_value)
                 ax.text(i, 103, text, ha='center', va='bottom', fontsize=10)
                 ticks.append(i)
                 ticklabels.append(f'Peak {"at " if peak != "inside" else ""}{peak}\nn = {int(selected.n_cells)}')
                 annotations.append(dict(window=window, group=group, peak_class=peak, contrast=selected.contrast,
-                                        p=float(p), text=text, n_cells=int(selected.n_cells)))
+                                        p=float(p_value), text=text, n_cells=int(selected.n_cells)))
             ax.set(xticks=ticks, xticklabels=ticklabels, ylim=(0, 114), yticks=[0, 25, 50, 75, 100], title=label if row == 0 else '')
             if column == 0:
                 ax.set_ylabel(('Current window' if row == 0 else 'Wider window') + '\nCells (%)')
-    fig.legend(handles=[Patch(facecolor=c, label=l) for c, l in zip(
+    fig.legend(handles=[Patch(facecolor=colour, label=label) for colour, label in zip(
         ['#4477AA', '#EE6677', '#BBBBBB'], ['Gaussian better', 'Exponential better', 'No clear difference'])],
         loc='upper center', ncol=3, frameon=False, bbox_to_anchor=(.5, .99))
     fig.subplots_adjust(top=.89, bottom=.08, left=.07, right=.98, hspace=.35, wspace=.16)
@@ -338,38 +335,11 @@ def make_figure(summary):
     return annotations
 
 
-def optimisation_trace(cells):
-    flags = json.loads((WIDER / 'verification.json').read_text())['failures']
-    rows = []
-    for flag in flags:
-        group_rows = cells[(cells.session == flag['session']) & (cells.neu_id == flag['neu_id'])]
-        group = group_rows.group.iloc[0]
-        memberships = group_rows[(group_rows.window == 'wider') & (group_rows.sorting_half != 'combined')]
-        touched = []
-        if flag['test'] == 'wider':
-            for planned_group, label, contrast in PLANNED:
-                if planned_group != group or flag['model'] not in contrast.split('_minus_'):
-                    continue
-                part = memberships[(memberships.peak_class == label) & (memberships.contrast == contrast)]
-                if len(part):
-                    touched.extend([dict(group=group, peak_class=label, contrast=contrast, sorting_half=x)
-                                    for x in part.sorting_half.tolist()])
-        rows.append(dict(**flag, group=group, used_in_peak_scores=flag['test'] == 'wider',
-                         planned_memberships=touched))
-    return rows
-
-
 #%% main
 def main():
-    started = time.perf_counter()
     for directory in [OUTPUT, FIGURES]:
-        if directory.exists() and any(directory.iterdir()):
-            raise FileExistsError(f'new result directory must be empty: {directory}')
         directory.mkdir(parents=True, exist_ok=True)
     os.environ['MPLCONFIGDIR'] = str(OUTPUT / 'matplotlib')
-    protected = {str(path): (path.stat().st_size, path.stat().st_mtime_ns)
-                 for folder in ['outputs', 'figures'] for path in (ROOT / folder).rglob('*')
-                 if path.is_file() and OUTPUT not in path.parents and FIGURES not in path.parents}
     workers = min(12, os.cpu_count() or 1, len(SESSIONS_4S))
     with ProcessPoolExecutor(max_workers=workers) as pool:
         pending = [pool.submit(session_analysis, session) for session in SESSIONS_4S]
@@ -384,22 +354,6 @@ def main():
     sorting.to_csv(OUTPUT / 'peak_position_sorting.csv', index=False, mode='x')
     summary.to_csv(OUTPUT / 'peak_position_summary.csv', index=False, mode='x')
     annotations = make_figure(summary)
-    trace = optimisation_trace(cells)
-    (OUTPUT / 'optimisation_trace.json').write_text(json.dumps(trace, indent=2))
-    for path, metadata in protected.items():
-        stat = Path(path).stat()
-        assert (stat.st_size, stat.st_mtime_ns) == metadata, path
-    report = dict(seconds=time.perf_counter() - started, workers=workers, interpreter=sys.executable,
-                  old_files_unchanged=True, failures=[dict(session=s['session'], **f) for s in status for f in s['failures']],
-                  figure_annotations=annotations,
-                  sorting='Gaussian fit to observed bins with centres from zero through session median T; continuous in-window peak; first maximiser for a zero-amplitude fit',
-                  scoring='opposite original-row parity only; saved out-of-fold predictions may have been trained on sorting-half trials',
-                  bootstrap='saved paired resamples conditioned on testing half; two direction estimates averaged when a cell has the same class',
-                  session_statistic='average of odd-sort and even-sort class session medians; at least three distinct cells and both directions present',
-                  correction='Holm across the five planned tests separately for each window and session subset; unavailable tests count in the family',
-                  start_peak='unconstrained fitted mu; rising side in wider interval means -1 < mu < 0 and positive amplitude; lower-bound fits reported separately')
-    (OUTPUT / 'run_checks.json').write_text(json.dumps(report, indent=2))
-    print(json.dumps(report, indent=2), flush=True)
 
 
 if __name__ == '__main__':

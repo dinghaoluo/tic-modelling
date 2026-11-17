@@ -8,11 +8,8 @@ recover known field shapes with trial-wise sign-flipped held-out residuals
 '''
 
 #%% imports
-import argparse
-import json
 import os
 import sys
-import time
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
@@ -27,7 +24,7 @@ from rec_list import SESSIONS_4S
 from utils.rf_models import predict
 from utils.trial_error_scores import trial_mse
 from analysis.fit_shapes import cv_prediction
-from analysis.compare_models_trial import trial_contrast, trial_loglikelihood
+from analysis.compare_models_trial import trial_contrast
 
 #%% constants
 OUTPUT = ROOT / 'outputs' / 'wider_window_fits'
@@ -60,16 +57,16 @@ def fitted_params(cell, shape):
                  f'{shape}_sigma' if shape == 'gaussian' else f'{shape}_tau']].to_numpy(float)
 
 
-def scored_contrast(signal, predictions, a, b, resamples):
+def scored_contrast(signal, predictions, model_a, model_b, resamples):
     residual = (signal - predictions['flat'])[np.isfinite(signal)]
     variance = np.var(residual, ddof=0)
     if not np.isfinite(variance) or variance <= 0:
         raise ValueError('flat held-out residual variance is not positive')
     errors = {name: trial_mse(signal, prediction) for name, prediction in predictions.items()}
-    difference = trial_contrast(errors[a], errors[b], variance)
+    difference = trial_contrast(errors[model_a], errors[model_b], variance)
     lower, upper = np.percentile(difference[resamples].mean(axis=1), [2.5, 97.5])
     return dict(mean_contrast=float(difference.mean()), lower=float(lower), upper=float(upper),
-                decision=a if lower > 0 else b if upper < 0 else 'undecided',
+                decision=model_a if lower > 0 else model_b if upper < 0 else 'undecided',
                 flat_residual_variance=float(variance)), errors
 
 
@@ -103,7 +100,6 @@ def sample_cells():
 
 #%% session recovery
 def recovery_session(session):
-    started = time.perf_counter()
     sample = pd.read_csv(OUTPUT / 'recovery_sample.csv')
     sample = sample[sample.session == session]
     data = np.load(ROOT / 'data' / 'binned' / f'{session}.npz')
@@ -141,9 +137,8 @@ def recovery_session(session):
                 print(session, 'recovery datasets', len(rows), flush=True)
     pd.DataFrame(rows).to_csv(OUTPUT / f'{session}_recovery.csv', index=False)
     np.savez(OUTPUT / f'{session}_recovery_signs.npz', **signs_saved)
-    status = dict(session=session, seconds=time.perf_counter() - started, failures=failures)
-    (OUTPUT / f'{session}_recovery_status.json').write_text(json.dumps(status, indent=2))
-    print(session, 'recovery complete', status['seconds'], flush=True)
+    status = dict(session=session, failures=failures)
+    pd.DataFrame([dict(failure, session=session) for failure in failures], columns=['session', 'neu_id', 'truth_shape', 'model', 'fold', 'stage']).to_csv(OUTPUT / f'{session}_recovery_failures.csv', index=False)
     return status
 
 
@@ -155,10 +150,10 @@ def recovery_summary():
             for truth in ['gaussian', matched_shape(group)]:
                 cells = selected[(selected.group == group) & (selected.truth_shape == truth)]
                 for outcome in ['correct', 'wrong', 'undecided']:
-                    count, n = int((cells.outcome == outcome).sum()), len(cells)
-                    interval = binomtest(count, n).proportion_ci(confidence_level=.95, method='exact') if n else None
+                    count, n_cells = int((cells.outcome == outcome).sum()), len(cells)
+                    interval = binomtest(count, n_cells).proportion_ci(confidence_level=.95, method='exact') if n_cells else None
                     rows.append(dict(subset=subset, group=group, truth_shape=truth, outcome=outcome,
-                                     n_cells=n, count=count, percentage=100 * count / n if n else np.nan,
+                                     n_cells=n_cells, count=count, percentage=100 * count / n_cells if n_cells else np.nan,
                                      lower=100 * interval.low if interval else np.nan,
                                      upper=100 * interval.high if interval else np.nan,
                                      interval_method='Clopper-Pearson exact'))
@@ -168,14 +163,12 @@ def recovery_summary():
 
 #%% main
 def main():
-    started = time.perf_counter()
     OUTPUT.mkdir(parents=True, exist_ok=True)
     sample_cells()
     workers = min(12, os.cpu_count() or 1, len(SESSIONS_4S))
     with ProcessPoolExecutor(max_workers=workers) as pool:
         list(pool.map(recovery_session, SESSIONS_4S))
     recovery_summary()
-    (OUTPUT / 'recovery_timing.json').write_text(json.dumps(dict(seconds=time.perf_counter() - started, workers=workers), indent=2))
 
 
 if __name__ == '__main__':

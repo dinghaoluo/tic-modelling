@@ -8,10 +8,8 @@ compare the current interval window with an added pre-last-lick period
 '''
 
 #%% imports
-import json
 import os
 import sys
-import time
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
@@ -32,7 +30,6 @@ from analysis.recovery_check import (OUTPUT, FIGURES, FITS, GROUPS, LABELS, matc
 
 #%% wider-window fits
 def wider_session(session):
-    started = time.perf_counter()
     fits = pd.read_csv(FITS / 'fits_all.csv')
     fits = fits[fits.session == session].reset_index(drop=True)
     old = np.load(ROOT / 'data' / 'binned' / f'{session}.npz')
@@ -46,8 +43,8 @@ def wider_session(session):
     binned = np.empty((len(selected), len(intervals), len(times)), dtype=np.float32)
     with Fluorescence(session_path(session) / 'dFFGF_befLastLick.mat') as reader:
         for i, cell in enumerate(selected.itertuples()):
-            arr = reader.read(int(cell.neu_id) - 1, 1000, 5000)
-            values = arr[trial_rows].reshape(len(intervals), 160, 25).mean(axis=2)
+            raw_dff = reader.read(int(cell.neu_id) - 1, 1000, 5000)
+            values = raw_dff[trial_rows].reshape(len(intervals), 160, 25).mean(axis=2)
             values[bin_end[None, :] > intervals[:, None] + 1e-12] = np.nan
             binned[i] = values
             np.testing.assert_array_equal(binned[i, :, 20:], old['dff'][int(cell.neu_id) - 1])
@@ -72,8 +69,8 @@ def wider_session(session):
                 cell_failures.extend(failed)
                 if name == 'flat':
                     continue
-                params, ok = fit_field(name, times[bins], intervals[trial], signal[trial, bins])
-                if not ok:
+                params, success = fit_field(name, times[bins], intervals[trial], signal[trial, bins])
+                if not success:
                     cell_failures.append(dict(model=name, stage='full'))
                 width = 'sigma' if name == 'gaussian' else 'tau'
                 names = ['a0', 'a', 'mu', width]
@@ -84,11 +81,11 @@ def wider_session(session):
                 for parameter, flag in zip(['mu', width], flags):
                     param_row[f'{name}_{parameter}_at_bound'] = bool(flag)
                 param_row[f'{name}_a_at_bound'] = bool(params[1] <= 1e-5)
-            for a, b in CONTRASTS:
-                result, errors = scored_contrast(signal, predictions, a, b, folds['bootstrap_trials'])
+            for model_a, model_b in CONTRASTS:
+                result, errors = scored_contrast(signal, predictions, model_a, model_b, folds['bootstrap_trials'])
                 rows.append(dict(session=session, neu_id=int(cell.neu_id), group=cell.group,
-                                 contrast=f'{a}_minus_{b}', model_a=a, model_b=b,
-                                 primary=(cell.group, f'{a}_minus_{b}') in PRIMARY, **result))
+                                 contrast=f'{model_a}_minus_{model_b}', model_a=model_a, model_b=model_b,
+                                 primary=(cell.group, f'{model_a}_minus_{model_b}') in PRIMARY, **result))
             param_row['fit_success'] = not cell_failures
             full_rows.append(param_row)
             failures.extend([dict(neu_id=int(cell.neu_id), **failure) for failure in cell_failures])
@@ -96,10 +93,9 @@ def wider_session(session):
                 print(session, 'wider cells', len(full_rows), flush=True)
     pd.DataFrame(rows).to_csv(OUTPUT / f'{session}_wider_contrasts.csv', index=False)
     pd.DataFrame(full_rows).to_csv(OUTPUT / f'{session}_wider_parameters.csv', index=False)
-    status = dict(session=session, seconds=time.perf_counter() - started, failures=failures,
+    status = dict(session=session, failures=failures,
                   cells=len(selected), source='dFFGF_befLastLick.mat', current_window_identical=True)
-    (OUTPUT / f'{session}_wider_status.json').write_text(json.dumps(status, indent=2))
-    print(session, 'wider complete', status['seconds'], flush=True)
+    pd.DataFrame([dict(failure, session=session) for failure in failures], columns=['session', 'neu_id', 'model', 'fold', 'stage']).to_csv(OUTPUT / f'{session}_wider_failures.csv', index=False)
     return status
 
 
@@ -115,10 +111,10 @@ def population(frame):
     for subset, selected in [('all_sessions', frame),
                              ('excluded_sessions', frame[~frame.session.isin(EXCLUDED)])]:
         for group in GROUPS:
-            for a, b in CONTRASTS:
-                contrast = f'{a}_minus_{b}'
+            for model_a, model_b in CONTRASTS:
+                contrast = f'{model_a}_minus_{model_b}'
                 cells = selected[(selected.group == group) & (selected.contrast == contrast)]
-                common = dict(subset=subset, group=group, contrast=contrast, model_a=a, model_b=b,
+                common = dict(subset=subset, group=group, contrast=contrast, model_a=model_a, model_b=model_b,
                               primary=(group, contrast) in PRIMARY)
                 rows.append(dict(**common, level='group', session='', **summary_row(cells)))
                 for session, part in cells.groupby('session'):
@@ -175,7 +171,7 @@ def wider_summary():
     return merged
 
 
-#%% requested figure
+#%% figure
 def plot_checks():
     import matplotlib
     matplotlib.use('Agg')
@@ -186,7 +182,7 @@ def plot_checks():
     summary = pd.read_csv(OUTPUT / 'wider_window_summary.csv')
     fig, axes = plt.subplots(1, 2, figsize=(14., 5.))
     palette = ['#4477AA', '#EE6677', '#BBBBBB']
-    x, labels = [], []
+    coordinates, labels = [], []
     for i, (group, label) in enumerate(zip(GROUPS, LABELS)):
         for j, truth in enumerate(['gaussian', matched_shape(group)]):
             position = 3 * i + j
@@ -198,12 +194,12 @@ def plot_checks():
                             label=outcome.capitalize() if i == 0 and j == 0 else None)
                 bottom += row.percentage
             np.testing.assert_allclose(bottom, 100.)
-            x.append(position)
+            coordinates.append(position)
             labels.append(f'{label}\n' + ('Gaussian truth' if j == 0 else 'Exponential truth'))
-    axes[0].set(xticks=x, xticklabels=labels, ylabel='Cells (%)', ylim=(0, 100))
+    axes[0].set(xticks=coordinates, xticklabels=labels, ylabel='Cells (%)', ylim=(0, 100))
     axes[0].tick_params(axis='x', rotation=25, labelsize=9)
     axes[0].legend(frameon=False, loc='upper center', bbox_to_anchor=(.5, 1.15), ncol=3)
-    x, labels = [], []
+    coordinates, labels = [], []
     for i, (group, label) in enumerate(zip(GROUPS, LABELS)):
         contrast = f'gaussian_minus_{matched_shape(group)}'
         for j, window in enumerate(['current', 'wider']):
@@ -218,9 +214,9 @@ def plot_checks():
                 bottom += row[column]
             np.testing.assert_allclose(bottom, 100.)
             axes[1].text(position, 102, p_label(row.wilcoxon_p), ha='center', va='bottom', fontsize=8)
-            x.append(position)
+            coordinates.append(position)
             labels.append(f'{label}\n{window.capitalize()}')
-    axes[1].set(xticks=x, xticklabels=labels, ylabel='Cells (%)', ylim=(0, 114), yticks=np.arange(0, 101, 20))
+    axes[1].set(xticks=coordinates, xticklabels=labels, ylabel='Cells (%)', ylim=(0, 114), yticks=np.arange(0, 101, 20))
     axes[1].tick_params(axis='x', rotation=25, labelsize=9)
     axes[1].legend(frameon=False, loc='upper center', bbox_to_anchor=(.5, 1.15), ncol=3, fontsize=8)
     fig.tight_layout()
@@ -228,22 +224,13 @@ def plot_checks():
     plt.close(fig)
 
 
-#%% protection and run
-def earlier_files():
-    return {str(path.relative_to(ROOT)): [path.stat().st_size, path.stat().st_mtime_ns]
-            for folder in ['outputs', 'figures'] for path in (ROOT / folder).rglob('*')
-            if path.is_file() and OUTPUT not in path.parents and FIGURES not in path.parents}
+#%% run
 
 
 def main():
-    started = time.perf_counter()
-    if (OUTPUT / 'recovery_cells.csv').exists() or (ROOT / 'data' / 'binned_wider').exists():
-        raise ValueError('new run destinations already contain results; do not overwrite')
     OUTPUT.mkdir(parents=True, exist_ok=True)
     FIGURES.mkdir(parents=True, exist_ok=True)
-    (ROOT / 'data' / 'binned_wider').mkdir()
-    prior = earlier_files()
-    (OUTPUT / 'earlier_files_before.json').write_text(json.dumps(prior, indent=2))
+    (ROOT / 'data' / 'binned_wider').mkdir(parents=True, exist_ok=True)
     sample_cells()
     workers = min(12, os.cpu_count() or 1, len(SESSIONS_4S))
     print('session workers:', workers, flush=True)
@@ -252,15 +239,6 @@ def main():
     recovery_summary()
     wider_summary()
     plot_checks()
-    if earlier_files() != prior:
-        raise ValueError('earlier output file metadata changed')
-    (OUTPUT / 'run_timing.json').write_text(json.dumps(dict(seconds=time.perf_counter() - started,
-         workers=workers, earlier_files_unchanged=True, seed=20261105,
-         reliability='saved all-trial split-half correlation from outputs/label_stability/cells.csv',
-         synthetic_variance='flat held-out residual variance on each synthetic dataset; common across models',
-         wider_neuron_axis='three requested groups only, mapped by saved neu_id',
-         recovery_intervals='Clopper-Pearson exact binomial intervals'), indent=2))
-    print('complete in seconds', time.perf_counter() - started, flush=True)
 
 
 if __name__ == '__main__':

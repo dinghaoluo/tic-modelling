@@ -11,9 +11,7 @@ compare two-exponential bumps in the saved wider-window folds
 import os
 for variable in ['OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS']:
     os.environ[variable] = '1'
-import json
 import sys
-import time
 from concurrent.futures import ProcessPoolExecutor
 from itertools import product
 from pathlib import Path
@@ -39,54 +37,54 @@ GRID   = np.array(list(product([0., .5, 1., 2., 3., 4., 5.5, 7.],
                                np.geomspace(.1, 10., 4), np.geomspace(.1, 10., 4))))
 
 #%% bump and exact compression
-def bump_shape(t, interval, params, anchoring, derivatives=False):
-    t, interval = np.broadcast_arrays(t, interval)
-    u, tau1, tau2 = params
-    p = np.minimum(u, interval) if anchoring == 'last' else np.maximum(interval - u, 0.)
-    dp = (u < interval).astype(float) * (1. if anchoring == 'last' else -1.)
-    shape = np.zeros(t.shape)
-    jac = np.zeros((t.size, 3))
+def bump_shape(bin_times, interval, params, anchoring, derivatives=False):
+    bin_times, interval = np.broadcast_arrays(bin_times, interval)
+    peak_offset, tau1, tau2 = params
+    peak = np.minimum(peak_offset, interval) if anchoring == 'last' else np.maximum(interval - peak_offset, 0.)
+    peak_derivative = (peak_offset < interval).astype(float) * (1. if anchoring == 'last' else -1.)
+    shape = np.zeros(bin_times.shape)
+    jacobian = np.zeros((bin_times.size, 3))
     # endpoint baselines also define the otherwise ambiguous p=0 and p=T cases
     for rising, tau in [(True, tau1), (False, tau2)]:
-        keep = (t > 0) & (t < interval) & ((t <= p) if rising else (t > p))
-        x = t[keep] if rising else (interval - t)[keep]
-        length = p[keep] if rising else (interval - p)[keep]
-        numerator = -np.expm1(-x / tau)
+        keep = (bin_times > 0) & (bin_times < interval) & ((bin_times <= peak) if rising else (bin_times > peak))
+        elapsed = bin_times[keep] if rising else (interval - bin_times)[keep]
+        length = peak[keep] if rising else (interval - peak)[keep]
+        numerator = -np.expm1(-elapsed / tau)
         denominator = -np.expm1(-length / tau)
         shape[keep] = numerator / denominator
         if derivatives:
             length_derivative = -numerator * np.exp(-length / tau) / (tau * denominator ** 2)
-            tau_derivative = (-x * np.exp(-x / tau) * denominator +
+            tau_derivative = (-elapsed * np.exp(-elapsed / tau) * denominator +
                               numerator * length * np.exp(-length / tau)) / (tau ** 2 * denominator ** 2)
-            jac[keep.ravel(), 0] = length_derivative * dp[keep] * (1. if rising else -1.)
-            jac[keep.ravel(), 1 if rising else 2] = tau_derivative
-    return (shape, jac) if derivatives else shape
+            jacobian[keep.ravel(), 0] = length_derivative * peak_derivative[keep] * (1. if rising else -1.)
+            jacobian[keep.ravel(), 1 if rising else 2] = tau_derivative
+    return (shape, jacobian) if derivatives else shape
 
 
-def predict_bump(t, interval, params, anchoring):
-    return params[0] + params[1] * bump_shape(t, interval, params[2:], anchoring)
+def predict_bump(bin_times, interval, params, anchoring):
+    return params[0] + params[1] * bump_shape(bin_times, interval, params[2:], anchoring)
 
 
-def compress_pairs(t, interval, y):
-    coordinates, inverse, counts = np.unique(np.c_[t, interval], axis=0,
+def compress_pairs(bin_times, interval, observed_values):
+    coordinates, inverse, counts = np.unique(np.c_[bin_times, interval], axis=0,
                                              return_inverse=True, return_counts=True)
-    means = np.bincount(inverse, weights=y) / counts
+    means = np.bincount(inverse, weights=observed_values) / counts
     return coordinates[:, 0], coordinates[:, 1], means, counts
 
 
-def coarse_grid(t, interval, weights, anchoring):
-    shapes = np.array([bump_shape(t, interval, p, anchoring) for p in GRID])
+def coarse_grid(bin_times, interval, weights, anchoring):
+    shapes = np.array([bump_shape(bin_times, interval, nonlinear_params, anchoring) for nonlinear_params in GRID])
     means = np.average(shapes, axis=1, weights=weights)
     centred = shapes - means[:, None]
     return centred, (centred ** 2) @ weights
 
 
-def fit_bump(t, interval, y, weights, anchoring, grid=None):
+def fit_bump(bin_times, interval, observed_values, weights, anchoring, grid=None):
     if grid is None:
-        grid = coarse_grid(t, interval, weights, anchoring)
+        grid = coarse_grid(bin_times, interval, weights, anchoring)
     centred, denominator = grid
-    y_mean = np.average(y, weights=weights)
-    covariance = centred @ (weights * (y - y_mean))
+    observed_mean = np.average(observed_values, weights=weights)
+    covariance = centred @ (weights * (observed_values - observed_mean))
     scores = np.divide(np.maximum(covariance, 0.) ** 2, denominator,
                        out=np.zeros_like(covariance), where=denominator > 0)
     initial = GRID[np.argmax(scores)]
@@ -97,29 +95,29 @@ def fit_bump(t, interval, y, weights, anchoring, grid=None):
         nonlocal previous, cached
         if previous is not None and np.array_equal(params, previous):
             return cached
-        shape, derivative = bump_shape(t, interval, params, anchoring, True)
+        shape, derivative = bump_shape(bin_times, interval, params, anchoring, True)
         shape_mean = np.average(shape, weights=weights)
         centred_shape = shape - shape_mean
-        denom = np.dot(weights, centred_shape ** 2)
-        cov = np.dot(weights * centred_shape, y - y_mean)
-        amplitude = max(cov / denom, 0.) if denom > 0 else 0.
+        denominator = np.dot(weights, centred_shape ** 2)
+        covariance = np.dot(weights * centred_shape, observed_values - observed_mean)
+        amplitude = max(covariance / denominator, 0.) if denominator > 0 else 0.
         derivative_mean = np.average(derivative, axis=0, weights=weights)
         amplitude_derivative = np.zeros(3)
         if amplitude > 0:
-            dcov = derivative.T @ (weights * (y - y_mean))
-            ddenom = 2. * derivative.T @ (weights * centred_shape)
-            amplitude_derivative = (dcov * denom - cov * ddenom) / denom ** 2
-        residual = square_root * (y_mean + amplitude * centred_shape - y)
+            covariance_derivative = derivative.T @ (weights * (observed_values - observed_mean))
+            denominator_derivative = 2. * derivative.T @ (weights * centred_shape)
+            amplitude_derivative = (covariance_derivative * denominator - covariance * denominator_derivative) / denominator ** 2
+        residual = square_root * (observed_mean + amplitude * centred_shape - observed_values)
         jacobian = square_root[:, None] * (amplitude * (derivative - derivative_mean) +
                                            centred_shape[:, None] * amplitude_derivative)
         previous = params.copy()
         cached = residual, jacobian
         return cached
 
-    result = least_squares(lambda p: evaluate(p)[0], initial,
-                           jac=lambda p: evaluate(p)[1], bounds=(LOWER, UPPER), x_scale='jac')
-    shape = bump_shape(t, interval, result.x, anchoring)
-    baseline, amplitude = linear_amplitude(y, shape, weights)
+    result = least_squares(lambda nonlinear_params: evaluate(nonlinear_params)[0], initial,
+                           jac=lambda nonlinear_params: evaluate(nonlinear_params)[1], bounds=(LOWER, UPPER), x_scale='jac')
+    shape = bump_shape(bin_times, interval, result.x, anchoring)
+    baseline, amplitude = linear_amplitude(observed_values, shape, weights)
     return np.r_[baseline, amplitude, result.x], result.success, result.nfev
 
 
@@ -134,9 +132,8 @@ def contrast_row(error_a, error_b, variance, bootstrap):
 
 
 def session_job(session):
-    started = time.perf_counter()
     data = np.load(DATA / f'{session}.npz')
-    signals, times, intervals, ids = [data[k] for k in ['dff', 't', 'T_k', 'neu_id']]
+    signals, times, intervals, ids = [data[key] for key in ['dff', 't', 'T_k', 'neu_id']]
     fold_data = np.load(ROOT / 'outputs' / 'fits' / f'{session}_folds.npz')
     np.testing.assert_array_equal(data['trial_rows'], fold_data['trial_rows'])
     folds, bootstrap = fold_data['folds'], fold_data['bootstrap_trials']
@@ -157,23 +154,23 @@ def session_job(session):
                 trial, bins = np.where(observed & train[:, None])
                 coordinates, inverse, weights = np.unique(np.c_[times[bins], intervals[trial]], axis=0,
                                                           return_inverse=True, return_counts=True)
-                t, interval = coordinates.T
-                grid = coarse_grid(t, interval, weights, anchoring)
+                bin_times, interval = coordinates.T
+                grid = coarse_grid(bin_times, interval, weights, anchoring)
                 test_trial, test_bins = np.where(observed & ~train[:, None])
                 for index, cell in enumerate(cells.itertuples()):
-                    y = np.bincount(inverse, weights=signals[index, trial, bins]) / weights
+                    observed_values = np.bincount(inverse, weights=signals[index, trial, bins]) / weights
                     try:
-                        params, ok, nfev = fit_bump(t, interval, y, weights, anchoring, grid)
+                        params, success, nfev = fit_bump(bin_times, interval, observed_values, weights, anchoring, grid)
                     except Exception as error:
                         failures.append(dict(session=session, neu_id=int(cell.neu_id), anchoring=anchoring,
                                              stage=str(stage), issue=repr(error)))
                         raise
-                    if not ok:
+                    if not success:
                         failures.append(dict(session=session, neu_id=int(cell.neu_id), anchoring=anchoring,
                                              stage=str(stage), issue='least_squares did not converge'))
                     if stage == 'full':
                         row = dict(session=session, neu_id=int(cell.neu_id), group=cell.group,
-                                   anchoring=anchoring, fit_success=bool(ok), nfev=nfev)
+                                   anchoring=anchoring, fit_success=bool(success), nfev=nfev)
                         row.update(zip(['a', 'B', 'u', 'tau1', 'tau2'], params))
                         row['B_at_lower'] = params[1] <= 1e-5
                         for key, value, lo, hi in zip(['u', 'tau1', 'tau2'], params[2:], LOWER, UPPER):
@@ -182,7 +179,6 @@ def session_job(session):
                         parameters.append(row)
                     else:
                         held[index, test_trial, test_bins] = predict_bump(times[test_bins], intervals[test_trial], params, anchoring)
-                print(session, anchoring, stage, 'seconds', round(time.perf_counter() - started, 1), flush=True)
             saved.create_dataset(anchoring, data=held, compression='lzf')
         with h5py.File(WIDER / f'{session}_wider_oof.h5', 'r') as original:
             np.testing.assert_array_equal(original['neu_id'][:], ids)
@@ -199,14 +195,14 @@ def session_job(session):
                     errors = {name: trial_mse(signal, fitted) for name, fitted in predictions.items()}
                     pairs = [(anchor, reference) for anchor in ['last', 'next'] for reference in ['gaussian', exponential]]
                     pairs.append(('last', 'next'))
-                    for a, b in pairs:
+                    for model_a, model_b in pairs:
                         rows.append(dict(session=session, neu_id=int(cell.neu_id), group=cell.group,
-                                         model_a=a, model_b=b, scoring=scoring,
-                                         **contrast_row(errors[a], errors[b], variances.loc[cell.neu_id], bootstrap)))
+                                         model_a=model_a, model_b=model_b, scoring=scoring,
+                                         **contrast_row(errors[model_a], errors[model_b], variances.loc[cell.neu_id], bootstrap)))
     pd.DataFrame(parameters).to_csv(OUTPUT / f'{session}_parameters.csv', index=False)
     pd.DataFrame(rows).to_csv(OUTPUT / f'{session}_contrasts.csv', index=False)
-    status = dict(session=session, seconds=time.perf_counter() - started, failures=failures, cells=len(ids))
-    (OUTPUT / f'{session}_status.json').write_text(json.dumps(status, indent=2))
+    status = dict(session=session, failures=failures, cells=len(ids))
+    pd.DataFrame([dict(failure, session=session) for failure in failures], columns=['session', 'neu_id', 'anchoring', 'stage', 'issue']).to_csv(OUTPUT / f'{session}_failures.csv', index=False)
     return status
 
 
@@ -220,22 +216,22 @@ def markdown(frame):
         return f'{value:.5g}' if isinstance(value, (float, np.floating)) else str(value)
     return '\n'.join(['| ' + ' | '.join(frame.columns) + ' |',
                       '| ' + ' | '.join(['---'] * len(frame.columns)) + ' |',
-                      *['| ' + ' | '.join(fmt(v) for v in row) + ' |' for row in frame.itertuples(index=False, name=None)]])
+                      *['| ' + ' | '.join(fmt(value) for value in row) + ' |' for row in frame.itertuples(index=False, name=None)]])
 
 
-def summarise(seconds):
-    parameters = pd.concat([pd.read_csv(p) for p in sorted(OUTPUT.glob('*_parameters.csv'))], ignore_index=True)
-    cells = pd.concat([pd.read_csv(p) for p in sorted(OUTPUT.glob('*_contrasts.csv'))], ignore_index=True)
+def summarise():
+    parameters = pd.concat([pd.read_csv(path) for path in sorted(OUTPUT.glob('*_parameters.csv'))], ignore_index=True)
+    cells = pd.concat([pd.read_csv(path) for path in sorted(OUTPUT.glob('*_contrasts.csv'))], ignore_index=True)
     parameters.to_csv(OUTPUT / 'parameters.csv', index=False)
     cells.to_csv(OUTPUT / 'contrasts.csv', index=False)
     rows = []
-    for (group, a, b, scoring), part in cells.groupby(['group', 'model_a', 'model_b', 'scoring']):
+    for (group, model_a, model_b, scoring), part in cells.groupby(['group', 'model_a', 'model_b', 'scoring']):
         medians = part.groupby('session').mean_contrast.median()
-        rows.append(dict(group=group, model_a=a, model_b=b, scoring=scoring, n=len(part), sessions=len(medians),
+        rows.append(dict(group=group, model_a=model_a, model_b=model_b, scoring=scoring, n=len(part), sessions=len(medians),
                          better=100 * part.decision.eq('favour_a').mean(), worse=100 * part.decision.eq('favour_b').mean(),
                          undecided=100 * part.decision.eq('undecided').mean(),
                          median_session_contrast=medians.median(), wilcoxon_p=signed_test(medians),
-                         favoured=a if medians.median() > 0 else b if medians.median() < 0 else 'neither'))
+                         favoured=model_a if medians.median() > 0 else model_b if medians.median() < 0 else 'neither'))
     comparison = pd.DataFrame(rows)
     comparison.to_csv(OUTPUT / 'comparison_summary.csv', index=False)
     rows = []
@@ -247,29 +243,16 @@ def summarise(seconds):
                              upper_bound_pct=100 * part[f'{key}_at_upper'].mean()))
     parameter_summary = pd.DataFrame(rows)
     parameter_summary.to_csv(OUTPUT / 'parameter_summary.csv', index=False)
-    statuses = [json.loads(p.read_text()) for p in OUTPUT.glob('*_status.json')]
-    failures = [failure for status in statuses for failure in status['failures']]
+    failures = pd.concat([pd.read_csv(path) for path in sorted(OUTPUT.glob('*_failures.csv'))], ignore_index=True).to_dict('records')
     pd.DataFrame(failures, columns=['session', 'neu_id', 'anchoring', 'stage', 'issue']).to_csv(OUTPUT / 'failures.csv', index=False)
-    text = '# two-exponential bumps\n\nAll observed trial bins enter the fit, with identical (t, T) pairs compressed to their means and weighted by count; the coarse grid profiles a and non-negative B before bounded least squares. The saved five folds, trial bootstrap draws and flat residual variance are retained, and t >= 0 is scored without refitting. Positive contrast favours model_a; the last-versus-next row is (error_next minus error_last) / (2 variance). All Wilcoxon tests use the 15 session medians and raw two-sided p-values.\n\n'
-    text += markdown(comparison.drop(columns='favoured')) + '\n\n' + markdown(parameter_summary)
-    text += '\n\nEndpoint values are defined as baseline even when the peak coincides with an endpoint; this is the continuous interior formula with a baseline endpoint convention, since the stated peak and baseline constraints conflict at p=0 or p=T. B has lower bound zero and no upper bound. Bound flags use absolute tolerance 1e-5.\n\n'
-    for row in comparison[comparison.model_b.eq('next') & comparison.scoring.eq('all')].itertuples():
-        text += f'{row.group}: session medians favour {row.favoured} anchoring (p={row.wilcoxon_p:.5g}); this is ' + ('significant' if row.wilcoxon_p < .05 else 'not significant') + '.\n\n'
-    if (OUTPUT / 'example_objective_check.csv').exists():
-        text += 'After seeing the low time-cell R2, the 12 saved example fits were checked against their best coarse-grid objective without changing any fit; every refined objective was at least as good within 6e-9 SSE. The prescribed falling branch has negative curvature for positive B, whereas an ordinary decaying exponential has positive curvature. This check does not establish a global optimum; details are in example_objective_check.csv.\n\n'
-    text += f'Fit failures: {len(failures)} of {len(parameters) * 6} fits. Wall time: {seconds:.1f} s. Parameter IQRs describe cells, while trial-bootstrap intervals describe each cell\'s held-out contrast. Local minima remain the weakest step; both anchorings use the same coarse grid and bounded refinement.\n'
-    (OUTPUT / 'summary.md').write_text(text, encoding='utf-8')
-    (OUTPUT / 'run_report.json').write_text(json.dumps(dict(seconds=seconds, failures=len(failures), fits=len(parameters)*6), indent=2))
-    print(text, flush=True)
 
 
 def main():
-    started = time.perf_counter()
     OUTPUT.mkdir(parents=True, exist_ok=True)
-    sessions = sorted(p.name.replace('_wider_parameters.csv', '') for p in WIDER.glob('*_wider_parameters.csv'))
+    sessions = sorted(path.name.replace('_wider_parameters.csv', '') for path in WIDER.glob('*_wider_parameters.csv'))
     with ProcessPoolExecutor(max_workers=6) as pool:
         list(pool.map(session_job, sessions))
-    summarise(time.perf_counter() - started)
+    summarise()
 
 
 if __name__ == '__main__':

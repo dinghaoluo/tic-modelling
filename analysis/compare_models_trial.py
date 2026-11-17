@@ -8,10 +8,8 @@ compare saved single-trial predictions with one flat-residual variance per cell
 '''
 
 #%% imports
-import json
 import os
 import sys
-import time
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
@@ -23,7 +21,7 @@ from scipy.stats import linregress
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from utils.trial_error_scores import trial_mse
-from analysis.compare_models import GROUPS, EXCLUDED, paired_test, markdown
+from analysis.compare_models import GROUPS, EXCLUDED, paired_test
 
 #%% constants
 OUTPUT = ROOT / 'outputs' / 'model_comparison'
@@ -49,7 +47,6 @@ def trial_contrast(mse_a, mse_b, variance):
 
 #%% session checks, before any likelihood comparison
 def check_session(session):
-    started = time.perf_counter()
     cells = pd.read_csv(FITS / 'fits_all.csv')
     cells = cells[cells.session == session].reset_index(drop=True)
     with np.load(ROOT / 'data' / 'binned' / f'{session}.npz') as data:
@@ -89,7 +86,7 @@ def check_session(session):
     print(session, 'checks passed', flush=True)
     return dict(session=session, cells=cells[['session', 'neu_id', 'group']].to_dict('records'),
                 errors=errors, variances=variances, bootstrap=bootstrap,
-                maximum_mse_difference=maximum_difference, check_seconds=time.perf_counter() - started)
+                maximum_mse_difference=maximum_difference)
 
 
 def compare_session(checked):
@@ -100,28 +97,28 @@ def compare_session(checked):
         errors = dict(zip(MODELS, checked['errors'][neuron]))
         likelihood_rows.append(dict(**cell, flat_residual_variance=variance,
             **{f'{model}_trial_mean_ll': trial_loglikelihood(errors[model], variance).mean() for model in MODELS}))
-        for a, b in CONTRASTS:
-            difference = trial_contrast(errors[a], errors[b], variance)
+        for model_a, model_b in CONTRASTS:
+            difference = trial_contrast(errors[model_a], errors[model_b], variance)
             lower, upper = np.percentile(difference[resamples].mean(axis=1), [2.5, 97.5])
-            rows.append(dict(**cell, contrast=f'{a}_minus_{b}', model_a=a, model_b=b,
+            rows.append(dict(**cell, contrast=f'{model_a}_minus_{model_b}', model_a=model_a, model_b=model_b,
                              mean_contrast=difference.mean(), lower=lower, upper=upper,
-                             decision=a if lower > 0 else b if upper < 0 else 'undecided',
-                             primary=(cell['group'], f'{a}_minus_{b}') in PRIMARY))
+                             decision=model_a if lower > 0 else model_b if upper < 0 else 'undecided',
+                             primary=(cell['group'], f'{model_a}_minus_{model_b}') in PRIMARY))
     return rows, likelihood_rows
 
 
-#%% population and session reporting
+#%% population and session tables
 def summary_row(cells):
     medians = cells.groupby('session').mean_contrast.median()
-    statistic, p = paired_test(medians)
-    a, b = cells.iloc[0][['model_a', 'model_b']]
+    statistic, p_value = paired_test(medians)
+    model_a, model_b = cells.iloc[0][['model_a', 'model_b']]
     return dict(n_cells=len(cells), median_contrast=cells.mean_contrast.median(),
                 pct_above_zero=100 * (cells.mean_contrast > 0).mean(),
-                pct_favour_a=100 * (cells.decision == a).mean(),
-                pct_favour_b=100 * (cells.decision == b).mean(),
+                pct_favour_a=100 * (cells.decision == model_a).mean(),
+                pct_favour_b=100 * (cells.decision == model_b).mean(),
                 pct_undecided=100 * (cells.decision == 'undecided').mean(),
                 n_sessions=len(medians), n_sessions_positive_median=int((medians > 0).sum()),
-                wilcoxon_statistic=statistic, wilcoxon_p=p)
+                wilcoxon_statistic=statistic, wilcoxon_p=p_value)
 
 
 def population_table(frame):
@@ -129,10 +126,10 @@ def population_table(frame):
     for subset, selected in [('all_sessions', frame),
                              ('excluded_sessions', frame[~frame.session.isin(EXCLUDED)])]:
         for group in GROUPS:
-            for a, b in CONTRASTS:
-                contrast = f'{a}_minus_{b}'
+            for model_a, model_b in CONTRASTS:
+                contrast = f'{model_a}_minus_{model_b}'
                 cells = selected[(selected.group == group) & (selected.contrast == contrast)]
-                common = dict(subset=subset, group=group, contrast=contrast, model_a=a, model_b=b,
+                common = dict(subset=subset, group=group, contrast=contrast, model_a=model_a, model_b=model_b,
                               primary=(group, contrast) in PRIMARY)
                 rows.append(dict(**common, level='group', session='', **summary_row(cells)))
                 for session, part in cells.groupby('session'):
@@ -167,14 +164,14 @@ def plot_comparison(frame):
 
     fig, axes = plt.subplots(1, 3, figsize=(13., 4.))
     colours = ['#4477AA', '#EE6677', '#228833', '#CCBB44', '#999999']
-    for ax, (a, b) in zip(axes, CONTRASTS):
+    for ax, (model_a, model_b) in zip(axes, CONTRASTS):
         for i, (group, colour) in enumerate(zip(GROUPS, colours)):
-            cells = frame[(frame.group == group) & (frame.contrast == f'{a}_minus_{b}')]
+            cells = frame[(frame.group == group) & (frame.contrast == f'{model_a}_minus_{model_b}')]
             medians = cells.groupby('session').mean_contrast.median().to_numpy()
             ax.scatter(i + np.linspace(-.15, .15, len(medians)), medians, s=18, color=colour)
         ax.axhline(0, color='black', linewidth=.7)
         ax.set(xticks=range(len(GROUPS)), xticklabels=GROUPS,
-               ylabel=f'{a} minus {b}\nmean held-out log-likelihood per bin')
+               ylabel=f'{model_a} minus {model_b}\nmean held-out log-likelihood per bin')
         ax.tick_params(axis='x', rotation=40)
     fig.tight_layout()
     fig.savefig(FIGURES / 'fig_model_comparison_trial.png', dpi=180)
@@ -183,7 +180,6 @@ def plot_comparison(frame):
 
 #%% main
 def main():
-    started = time.perf_counter()
     OUTPUT.mkdir(parents=True, exist_ok=True)
     FIGURES.mkdir(parents=True, exist_ok=True)
     fits = pd.read_csv(FITS / 'fits_all.csv')
@@ -207,34 +203,6 @@ def main():
     literature = literature[literature.metric != 'width_on_peak_slope_trial_check']
     pd.concat([literature, slopes], ignore_index=True).to_csv(OUTPUT / 'literature.csv', index=False)
     plot_comparison(cells)
-    issues = [f'width slope {row.subset} is negative: {row.our_value:.6g}'
-              for row in slopes.itertuples() if row.our_value < 0]
-    previous = (OUTPUT / 'summary.md').read_text()
-    marker = '# Saved-model comparison'
-    if marker not in previous:
-        raise ValueError('existing summary section not found')
-    previous = previous[previous.index(marker):]
-    prefix = '# Single-trial held-out likelihood comparison\n\n'
-    prefix += ('This table supersedes the mean-trace likelihood table below. All cells are retained, including unsuccessful fit flags. '
-               'One variance per cell is the population variance of its held-out flat residuals over observed bins; '
-               'that same variance is used for every model. Each trial contributes its mean Gaussian log-likelihood per observed bin, '
-               'and each cell contrast is the mean over trials. Percentile intervals resample trials using the saved bootstrap indices. '
-               'Positive intervals favour model a, negative intervals model b, and intervals including zero are undecided. '
-               'No likelihood-ratio tests are used. Group Wilcoxon tests use session medians, not bins or cells. '
-               'Primary contrasts are marked explicitly. Single-session rows have no Wilcoxon test.\n\n')
-    prefix += '## Group results\n\n' + markdown(population[population.level == 'group']) + '\n\n'
-    prefix += '## Session results\n\n' + markdown(population[population.level == 'session']) + '\n\n'
-    prefix += '## Additional time-cell width slopes\n\n' + markdown(slopes) + '\n\n'
-    prefix += '## Rows flagged for review\n\n' + ('\n'.join(issues) if issues else 'None.') + '\n\n'
-    (OUTPUT / 'summary.md').write_text(prefix + previous)
-    report = dict(seconds=time.perf_counter() - started, workers=workers, cells=len(fits),
-                  sessions=len(sessions), maximum_mse_difference=max(item['maximum_mse_difference'] for item in checks),
-                  all_checks_passed=True, issues=issues, interpreter=sys.executable,
-                  variance='np.var of flat residuals over all observed bins, ddof=0',
-                  session_checks=[{key: value for key, value in item.items() if key in
-                                   ['session', 'maximum_mse_difference', 'check_seconds']} for item in checks])
-    (OUTPUT / 'run_report_trial.json').write_text(json.dumps(report, indent=2))
-    print(json.dumps(report, indent=2), flush=True)
 
 
 if __name__ == '__main__':
