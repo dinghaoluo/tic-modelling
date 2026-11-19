@@ -1,5 +1,6 @@
 '''
 Created on Wed Nov 18 2026
+Updated on Thu Nov 19 2026
 
 compare the saved last-lick Gaussian minus decay contrast across cell groups
 
@@ -25,10 +26,7 @@ PAIRS = [('tic_down', 'time_cell'), ('tic_up', 'time_cell'), ('tic_down', 'tic_u
 
 
 #%% group differences
-def main():
-    saved = pd.concat([pd.read_csv(WIDER / f'{session}_wider_contrasts.csv')
-                       for session in SESSIONS_4S], ignore_index=True)
-    cells = saved[saved.contrast.eq('gaussian_minus_decay') & saved.group.isin(GROUPS)]
+def group_tables(cells):
     medians = cells.pivot_table(index='session', columns='group', values='mean_contrast',
                                aggfunc='median').reindex(index=SESSIONS_4S, columns=GROUPS)
     if cells.duplicated(['session', 'neu_id']).any() or not np.isfinite(cells.mean_contrast).all():
@@ -50,7 +48,14 @@ def main():
                          q75_paired_difference=differences.quantile(.75),
                          wilcoxon_statistic=wilcoxon_stat, wilcoxon_p=wilcoxon_p,
                          mann_whitney_u=mann_whitney.statistic, mann_whitney_p=mann_whitney.pvalue))
-    tests = pd.DataFrame(rows)
+    return medians, pd.DataFrame(rows)
+
+
+def main():
+    saved = pd.concat([pd.read_csv(WIDER / f'{session}_wider_contrasts.csv')
+                       for session in SESSIONS_4S], ignore_index=True)
+    cells = saved[saved.contrast.eq('gaussian_minus_decay') & saved.group.isin(GROUPS)]
+    medians, tests = group_tables(cells)
     OUTPUT.mkdir(parents=True, exist_ok=True)
     medians.to_csv(OUTPUT / 'session_medians.csv')
     tests.to_csv(OUTPUT / 'group_tests.csv', index=False)
