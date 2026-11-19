@@ -1,6 +1,6 @@
-# -*- coding: utf-8 -*-
 '''
 Created on Thu Nov  5 18:24:50 2026
+Updated on Wed Nov 18 2026
 
 compare the current interval window with an added pre-last-lick period
 
@@ -27,6 +27,30 @@ from analysis.compare_models_trial import CONTRASTS, PRIMARY, summary_row
 from analysis.compare_models import EXCLUDED
 from analysis.recovery_check import (OUTPUT, FIGURES, FITS, GROUPS, LABELS, matched_shape,
                                      scored_contrast, sample_cells, recovery_session, recovery_summary)
+
+#%% saved wider-window inputs
+def read_wider_inputs(session, saved):
+    with np.load(ROOT / 'data' / 'binned_wider' / f'{session}.npz') as source:
+        data = dict(source)
+    with np.load(FITS / f'{session}_folds.npz') as source:
+        folds = dict(source)
+    np.testing.assert_array_equal(data['neu_id'], saved['neu_id'][:])
+    np.testing.assert_array_equal(data['trial_rows'], folds['trial_rows'])
+    np.testing.assert_array_equal(data['trial_rows'] + 1, saved['trial_rows'][:])
+    np.testing.assert_array_equal(data['t'], saved['t'][:])
+    n_trials = len(data['T_k'])
+    np.testing.assert_array_equal(np.unique(folds['folds']), np.arange(5))
+    bootstrap = folds['bootstrap_trials']
+    if (data['dff'].shape != saved['flat'].shape or folds['folds'].shape != (n_trials,)
+            or bootstrap.shape[1] != n_trials or bootstrap.min() < 0 or bootstrap.max() >= n_trials):
+        raise ValueError(f'{session}: saved predictions, folds or resamples do not match the trials')
+    after_lick = data['bin_end'][None, :] > data['T_k'][:, None] + 1e-12
+    if np.isfinite(data['dff'][:, after_lick]).any():
+        raise ValueError(f'{session}: observed bins extend beyond the next lick')
+    cells = pd.read_csv(OUTPUT / f'{session}_wider_parameters.csv')
+    np.testing.assert_array_equal(cells.neu_id, data['neu_id'])
+    return data, folds, cells
+
 
 #%% wider-window fits
 def wider_session(session):

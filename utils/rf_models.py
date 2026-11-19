@@ -1,6 +1,6 @@
-# -*- coding: utf-8 -*-
 '''
 Created on Thu Nov  5 11:24:40 2026
+Updated on Wed Nov 18 2026
 
 receptive-field fits allowing onset or centre before the last lick
 
@@ -29,15 +29,16 @@ GRIDS = {
 _GRID_CACHE = {}
 
 #%% shapes
-def field_shape(name, bin_times, interval, params, rho=0., tbar=None):
+def field_shape(name, bin_times, interval, params, rho=0., tbar=None, *, onset_width=.2):
     mu, width = params
     scale = 1. if tbar is None else np.maximum(1. + rho * (interval - tbar) / tbar, .1)
     if name == 'gaussian':
         return np.exp(-.5 * ((bin_times - mu * scale) / (width * scale)) ** 2)
     coordinates = interval - bin_times if name == 'rise' else bin_times
     tau = width * scale
-    onset_distance = (coordinates - mu) / .2
-    return np.exp(.5 * (.2 / tau) ** 2 - (coordinates - mu) / tau + log_ndtr(onset_distance - .2 / tau))
+    onset_distance = (coordinates - mu) / onset_width
+    width_ratio = onset_width / tau
+    return np.exp(.5 * width_ratio ** 2 - (coordinates - mu) / tau + log_ndtr(onset_distance - width_ratio))
 
 
 def linear_amplitude(observed_values, shape, weights=None):
@@ -63,11 +64,13 @@ def compressed_observations(name, bin_times, interval, observed_values, rho=0.):
     return unique, np.zeros(len(unique)), means, counts
 
 
-def fit_field(name, bin_times, interval, observed_values, rho=0., tbar=None, initial=None, equal_time_weight=False, bounds=None):
+def fit_field(name, bin_times, interval, observed_values, rho=0., tbar=None, initial=None,
+              equal_time_weight=False, bounds=None, *, onset_width=.2):
     '''profile linear coefficients on the coarse grid and through nonlinear refinement
 
     equal_time_weight gives compressed model-axis coordinates equal weight; the
-    caller chooses their trial support, while bounds changes only the current fit
+    caller chooses their trial support, while bounds changes only the current fit.
+    onset_width is the Gaussian smoothing width in seconds for decay and rise.
     '''
     if equal_time_weight and rho != 0:
         raise ValueError('equal time-bin weights require a single time axis')
@@ -79,13 +82,14 @@ def fit_field(name, bin_times, interval, observed_values, rho=0., tbar=None, ini
     lower, upper = BOUNDS[name] if bounds is None else bounds
     key = None
     if rho == 0 and initial is None:
-        key = name, tuple(lower), tuple(upper), sha1(bin_times.tobytes() + interval.tobytes() + weights.tobytes()).digest()
+        key = name, onset_width, tuple(lower), tuple(upper), sha1(bin_times.tobytes() + interval.tobytes() + weights.tobytes()).digest()
     cached = _GRID_CACHE.get(key) if key is not None else None
     if cached is None:
         grid = GRIDS[name] if bounds is None else (np.linspace(lower[0], upper[0], len(GRIDS[name][0])),
                                                   np.geomspace(lower[1], upper[1], len(GRIDS[name][1])))
         nonlinear = np.array(list(product(*grid)) if initial is None else [initial])
-        shapes = field_shape(name, bin_times[None, :], interval[None, :], nonlinear.T[:, :, None], rho, tbar)
+        shapes = field_shape(name, bin_times[None, :], interval[None, :], nonlinear.T[:, :, None],
+                             rho, tbar, onset_width=onset_width)
         means = np.average(shapes, axis=1, weights=weights)
         centred = shapes - means[:, None]
         denominator = (centred ** 2) @ weights
@@ -100,30 +104,33 @@ def fit_field(name, bin_times, interval, observed_values, rho=0., tbar=None, ini
     best = nonlinear[np.argmax(score)]
 
     def residual(params):
-        shape = field_shape(name, bin_times, interval, params, rho, tbar)
+        shape = field_shape(name, bin_times, interval, params, rho, tbar, onset_width=onset_width)
         baseline, amplitude = linear_amplitude(observed_values, shape, weights)
         return np.sqrt(weights) * (baseline + amplitude * shape - observed_values)
 
     result = least_squares(residual, best, bounds=(lower, upper), x_scale='jac')
-    shape = field_shape(name, bin_times, interval, result.x, rho, tbar)
+    shape = field_shape(name, bin_times, interval, result.x, rho, tbar, onset_width=onset_width)
     baseline, amplitude = linear_amplitude(observed_values, shape, weights)
     return np.r_[baseline, amplitude, result.x], result.success
 
 
-def predict(name, bin_times, interval, params, rho=0., tbar=None):
+def predict(name, bin_times, interval, params, rho=0., tbar=None, *, onset_width=.2):
     if name == 'flat':
         return np.full_like(bin_times, params[0], dtype=float)
-    return params[0] + params[1] * field_shape(name, bin_times, interval, params[2:], rho, tbar)
+    shape = field_shape(name, bin_times, interval, params[2:], rho, tbar, onset_width=onset_width)
+    return params[0] + params[1] * shape
 
 
-def fit_scaling(name, bin_times, interval, observed_values, tbar):
+def fit_scaling(name, bin_times, interval, observed_values, tbar, *, onset_width=.2):
     best_sse = np.inf
     best = None
     success = True
     for rho in np.round(np.arange(-1., 2.01, .1), 10):
-        params, fit_success = fit_field(name, bin_times, interval, observed_values, float(rho), tbar)
+        params, fit_success = fit_field(name, bin_times, interval, observed_values, float(rho), tbar,
+                                        onset_width=onset_width)
         success &= fit_success
-        residual = observed_values - predict(name, bin_times, interval, params, float(rho), tbar)
+        residual = observed_values - predict(name, bin_times, interval, params, float(rho), tbar,
+                                             onset_width=onset_width)
         sse = np.sum(residual ** 2)
         if sse < best_sse:
             best_sse = sse

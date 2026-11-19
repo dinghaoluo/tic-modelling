@@ -1,6 +1,6 @@
-# -*- coding: utf-8 -*-
 '''
 Created on Thu Nov  5 11:24:40 2026
+Updated on Wed Nov 18 2026
 
 fit single-trial fields and compare paired out-of-fold trial errors
 
@@ -31,10 +31,15 @@ MODELS = ['flat', *SHAPES, 'poly1', 'poly2', 'poly3', 'poly4']
 SEED = 20261104
 
 #%% cross-validation
-def cv_prediction(name, signal, times, intervals, folds, scaling=False):
+def cv_prediction(name, signal, times, intervals, folds, scaling=False, *,
+                  onset_width=.2, next_lick=False):
     '''fit observed single-trial bins, never a trial-averaged training trace'''
     trial, bins = np.where(np.isfinite(signal))
     observed_values, bin_times, interval = signal[trial, bins].astype(float), times[bins], intervals[trial]
+    if next_lick:
+        if name != 'gaussian':
+            raise ValueError('the next-lick alignment option is for Gaussian fits')
+        bin_times = interval - bin_times
     held = np.full(signal.shape, np.nan)
     failures = []
     for fold in range(5):
@@ -49,10 +54,13 @@ def cv_prediction(name, signal, times, intervals, folds, scaling=False):
         else:
             rho = 0.
             if scaling:
-                params, rho, success = fit_scaling(name, bin_times[train], interval[train], observed_values[train], intervals.mean())
+                params, rho, success = fit_scaling(name, bin_times[train], interval[train], observed_values[train],
+                                                     intervals.mean(), onset_width=onset_width)
             else:
-                params, success = fit_field(name, bin_times[train], interval[train], observed_values[train])
-            prediction = predict(name, bin_times[test], interval[test], params, rho, intervals.mean())
+                params, success = fit_field(name, bin_times[train], interval[train], observed_values[train],
+                                            onset_width=onset_width)
+            prediction = predict(name, bin_times[test], interval[test], params, rho, intervals.mean(),
+                                 onset_width=onset_width)
         held[trial[test], bins[test]] = prediction
         if not success:
             failures.append(dict(model=name, fold=fold, stage='scaled_cv' if scaling else 'cv'))
