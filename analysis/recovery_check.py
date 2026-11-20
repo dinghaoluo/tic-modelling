@@ -1,6 +1,6 @@
-# -*- coding: utf-8 -*-
 '''
 Created on Thu Nov  5 18:24:50 2026
+Updated on Fri Nov 20 2026
 
 recover known field shapes with trial-wise sign-flipped held-out residuals
 
@@ -28,6 +28,7 @@ from analysis.compare_models_trial import trial_contrast
 
 #%% constants
 OUTPUT = ROOT / 'outputs' / 'wider_window_fits'
+WIDER_RECOVERY = ROOT / 'outputs' / 'recovery_wider'
 FIGURES = ROOT / 'figures' / 'wider_window_fits'
 FITS = ROOT / 'outputs' / 'fits'
 GROUPS = ['tic_down', 'tic_up', 'time_cell']
@@ -99,27 +100,41 @@ def sample_cells():
 
 
 #%% session recovery
-def recovery_session(session):
+def recovery_session(session, *, wider=False):
+    output = WIDER_RECOVERY if wider else OUTPUT
     sample = pd.read_csv(OUTPUT / 'recovery_sample.csv')
     sample = sample[sample.session == session]
-    data = np.load(ROOT / 'data' / 'binned' / f'{session}.npz')
-    dff, times, intervals = data['dff'], data['t'], data['T_k']
-    folds = np.load(FITS / f'{session}_folds.npz')
-    np.testing.assert_array_equal(folds['trial_rows'], data['trial_rows'])
-    trial, bins = np.where(np.isfinite(dff[0]))
+    reference = OUTPUT / f'{session}_wider_oof.h5' if wider else FITS / f'{session}_oof.h5'
     rows, failures, signs_saved = [], [], {}
-    with h5py.File(FITS / f'{session}_oof.h5', 'r') as saved:
-        np.testing.assert_array_equal(saved['trial_rows'][:], data['trial_rows'] + 1)
-        for _, cell in sample.iterrows():
-            neuron = int(cell.neu_id) - 1
+    with h5py.File(reference, 'r') as saved:
+        if wider:
+            from analysis.wider_window_check import read_wider_inputs
+
+            data, folds, parameters = read_wider_inputs(session, saved)
+            neurons = pd.Index(data['neu_id']).get_indexer(sample.neu_id)
+            if (neurons < 0).any():
+                raise ValueError(f'{session}: sampled neuron missing from wider fits')
+            parameters = parameters.iloc[neurons].set_index('neu_id', verify_integrity=True)
+            np.testing.assert_array_equal(parameters.group, sample.group)
+        else:
+            data = np.load(ROOT / 'data' / 'binned' / f'{session}.npz')
+            folds = np.load(FITS / f'{session}_folds.npz')
+            np.testing.assert_array_equal(folds['trial_rows'], data['trial_rows'])
+            np.testing.assert_array_equal(saved['trial_rows'][:], data['trial_rows'] + 1)
+            neurons = sample.neu_id.to_numpy() - 1
+        dff, times, intervals = data['dff'], data['t'], data['T_k']
+
+        for neuron, (_, cell) in zip(neurons, sample.iterrows()):
+            neu_id = int(cell.neu_id)
+            fitted = parameters.loc[neu_id] if wider else cell
             signal = dff[neuron].astype(float)
             exponential = matched_shape(cell.group)
             rng = np.random.default_rng(int(cell.synthetic_seed))
             for truth_shape in ['gaussian', exponential]:
-                params = fitted_params(cell, truth_shape)
+                params = fitted_params(fitted, truth_shape)
                 truth = predict(truth_shape, np.broadcast_to(times, signal.shape), intervals[:, None], params)
                 signs = rng.choice([-1, 1], size=len(intervals))
-                signs_saved[f'{neuron + 1}_{truth_shape}'] = signs
+                signs_saved[f'{neu_id}_{truth_shape}'] = signs
                 synthetic = sign_flip_signal(truth, signal, saved[truth_shape][neuron], signs)
                 predictions, cell_failures = {}, []
                 for name in ['flat', 'gaussian', exponential]:
@@ -128,22 +143,28 @@ def recovery_session(session):
                 result, _ = scored_contrast(synthetic, predictions, 'gaussian', exponential, folds['bootstrap_trials'])
                 decision = result['decision']
                 outcome = ('undecided' if decision == 'undecided' else 'correct' if decision == truth_shape else 'wrong')
-                rows.append(dict(session=session, neu_id=neuron + 1, group=cell.group, truth_shape=truth_shape,
+                rows.append(dict(session=session, neu_id=neu_id, group=cell.group, truth_shape=truth_shape,
                                  matched_exponential=exponential, split_half_r=cell.split_half_r,
                                  synthetic_seed=int(cell.synthetic_seed), outcome=outcome,
                                  fit_success=not cell_failures, **result))
-                failures.extend([dict(neu_id=neuron + 1, truth_shape=truth_shape, **failure) for failure in cell_failures])
+                failures.extend([dict(neu_id=neu_id, truth_shape=truth_shape, **failure) for failure in cell_failures])
             if len(rows) % 20 == 0:
                 print(session, 'recovery datasets', len(rows), flush=True)
-    pd.DataFrame(rows).to_csv(OUTPUT / f'{session}_recovery.csv', index=False)
-    np.savez(OUTPUT / f'{session}_recovery_signs.npz', **signs_saved)
+    if wider:
+        with np.load(OUTPUT / f'{session}_recovery_signs.npz') as original:
+            if set(original.files) != signs_saved.keys():
+                raise ValueError(f'{session}: sampled cells differ from the original recovery')
+            for key, signs in signs_saved.items():
+                np.testing.assert_array_equal(signs, original[key])
+    pd.DataFrame(rows).to_csv(output / f'{session}_recovery.csv', index=False)
+    np.savez(output / f'{session}_recovery_signs.npz', **signs_saved)
     status = dict(session=session, failures=failures)
-    pd.DataFrame([dict(failure, session=session) for failure in failures], columns=['session', 'neu_id', 'truth_shape', 'model', 'fold', 'stage']).to_csv(OUTPUT / f'{session}_recovery_failures.csv', index=False)
+    pd.DataFrame([dict(failure, session=session) for failure in failures], columns=['session', 'neu_id', 'truth_shape', 'model', 'fold', 'stage']).to_csv(output / f'{session}_recovery_failures.csv', index=False)
     return status
 
 
-def recovery_summary():
-    frame = pd.concat([pd.read_csv(OUTPUT / f'{session}_recovery.csv') for session in SESSIONS_4S], ignore_index=True)
+def recovery_summary(output=OUTPUT):
+    frame = pd.concat([pd.read_csv(output / f'{session}_recovery.csv') for session in SESSIONS_4S], ignore_index=True)
     rows = []
     for subset, selected in [('all_sampled', frame), ('split_half_r_above_0.8', frame[frame.split_half_r > .8])]:
         for group in GROUPS:
@@ -157,8 +178,8 @@ def recovery_summary():
                                      lower=100 * interval.low if interval else np.nan,
                                      upper=100 * interval.high if interval else np.nan,
                                      interval_method='Clopper-Pearson exact'))
-    frame.to_csv(OUTPUT / 'recovery_cells.csv', index=False)
-    pd.DataFrame(rows).to_csv(OUTPUT / 'recovery_summary.csv', index=False)
+    frame.to_csv(output / 'recovery_cells.csv', index=False)
+    pd.DataFrame(rows).to_csv(output / 'recovery_summary.csv', index=False)
 
 
 #%% main
