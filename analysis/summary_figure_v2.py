@@ -1,5 +1,6 @@
 '''
 Created on Fri Nov 21 2026
+Updated on Fri Nov 21 2026
 
 plot held-out model differences in the receptive-field summary figure
 
@@ -82,15 +83,13 @@ def make_figure(table, fits, gaussian, polynomial, between_a, between_b):
     axes = [fig.add_subplot(grid[0, :3]), fig.add_subplot(grid[0, 3:]),
             fig.add_subplot(grid[1, :2]), fig.add_subplot(grid[1, 2:4]), fig.add_subplot(grid[1, 4:])]
 
-    def plot_difference(ax, panel, frame, ylabel, between):
-        medians = frame.pivot(index='session', columns='group', values='session_median').loc[:, GROUPS]
+    def plot_difference(ax, panel, frame, title, ylabel, between):
+        medians = frame.pivot(index='session', columns='group', values='session_median').loc[:, GROUPS] * 1000.
         values = medians.to_numpy(float)
         low, high = np.nanmin(values), np.nanmax(values)
         span = max(high - low, 1e-9)
-        group_p = {group: paired_test(medians[group])[1] for group in GROUPS}
-        group_y = high + .14 * span
-        bracket_y = [high + (.34 + .22 * i) * span for i in range(3)]
-        top = bracket_y[-1] + .16 * span
+        bracket_y = [high + (.22 + .22 * i) * span for i in range(3)]
+        top = bracket_y[-1] + .28 * span
         for session in medians.index:
             ax.plot(np.arange(len(GROUPS)), medians.loc[session].to_numpy(float),
                     color='#BDBDBD', linewidth=.65, zorder=1)
@@ -100,8 +99,6 @@ def make_figure(table, fits, gaussian, polynomial, between_a, between_b):
             median = np.median(y)
             ax.plot([i - .12, i + .12], [median, median], color='black',
                     linewidth=2., zorder=4)
-            ax.text(i, group_y, p_label(group_p[group]), ha='center',
-                    va='bottom', fontsize=15)
         for i, (left, right) in enumerate([(0, 2), (0, 1), (1, 2)]):
             row = between[(between.group_a == GROUPS[left]) &
                           (between.group_b == GROUPS[right])]
@@ -115,13 +112,13 @@ def make_figure(table, fits, gaussian, polynomial, between_a, between_b):
                     p_label(float(row.iloc[0].wilcoxon_p)), ha='center',
                     va='bottom', fontsize=15)
         ax.axhline(0., color='black', linewidth=.8, linestyle='--')
-        ax.set(ylabel=ylabel, xticks=range(len(LABELS)), xticklabels=LABELS,
-               ylim=(low - .10 * span, top))
+        ax.set(title=title, ylabel=ylabel, xticks=range(len(LABELS)),
+               xticklabels=LABELS, ylim=(low - .10 * span, top))
 
-    plot_difference(axes[0], 'A', gaussian,
-                    'Held-out log-likelihood, Gaussian − exponential', between_a)
-    plot_difference(axes[1], 'B', polynomial,
-                    'Held-out log-likelihood, curved − linear', between_b)
+    plot_difference(axes[0], 'A', gaussian, 'Gaussian vs exponential',
+                    'Held-out log-likelihood\n(\u00d710\u207b\u00b3)', between_a)
+    plot_difference(axes[1], 'B', polynomial, 'Linear vs curved',
+                    'Held-out log-likelihood\n(\u00d710\u207b\u00b3)', between_b)
 
     for ax, panel, measure, title, ylabel in zip(axes[2:], ['C', 'D', 'E'],
             ['peak', 'width', 'ramp rate'], ['Peak location', 'Gaussian width', 'Time constant'],
@@ -185,9 +182,9 @@ def make_figure(table, fits, gaussian, polynomial, between_a, between_b):
                        linestyle='--', label='Cao et al. 2024 future')],
                       frameon=False, loc='upper left', fontsize=14)
     for ax, letter in zip(axes, 'ABCDE'):
-        ax.text(-.12, 1.05, letter, transform=ax.transAxes, fontsize=22,
+        ax.text(-.18, 1.05, letter, transform=ax.transAxes, fontsize=22,
                 fontweight='bold', ha='right')
-    fig.subplots_adjust(left=.085, right=.98, bottom=.12, top=.84)
+    fig.subplots_adjust(left=.12, right=.98, bottom=.12, top=.84)
     fig.savefig(FIGURES / 'receptive_field_model_summary_v2.png', dpi=300)
     fig.savefig(FIGURES / 'receptive_field_model_summary_v2.pdf')
     plt.close(fig)
@@ -199,14 +196,7 @@ def main():
     between_a = saved_between_tests()
     between_b = between_tests(polynomial)
     p_rows = []
-    for panel, frame, between in [('A', gaussian, between_a), ('B', polynomial, between_b)]:
-        medians = frame.pivot(index='session', columns='group',
-                              values='session_median').loc[:, GROUPS]
-        for group in GROUPS:
-            statistic, p_value = paired_test(medians[group])
-            p_rows.append(dict(panel=panel, comparison=f'{group} against zero',
-                               n_sessions=len(medians), wilcoxon_statistic=statistic,
-                               wilcoxon_p=p_value))
+    for panel, between in [('A', between_a), ('B', between_b)]:
         for row in between.itertuples(index=False):
             p_rows.append(dict(panel=panel, comparison=f'{row.group_a} vs {row.group_b}',
                                n_sessions=row.n_sessions,
