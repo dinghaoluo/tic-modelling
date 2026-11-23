@@ -1,6 +1,7 @@
 '''
 Created on Fri Nov 21 2026
 Updated on Fri Nov 21 2026
+Updated on Mon Nov 23 2026
 
 plot held-out model differences in the receptive-field summary figure
 
@@ -116,9 +117,9 @@ def make_figure(table, fits, gaussian, polynomial, between_a, between_b):
                xticklabels=LABELS, ylim=(low - .10 * span, top))
 
     plot_difference(axes[0], 'A', gaussian, 'Gaussian vs exponential',
-                    'Held-out log-likelihood\n(\u00d710\u207b\u00b3)', between_a)
+                    '\u0394 held-out log-likelihood\n(\u00d710\u207b\u00b3 per bin)', between_a)
     plot_difference(axes[1], 'B', polynomial, 'Linear vs curved',
-                    'Held-out log-likelihood\n(\u00d710\u207b\u00b3)', between_b)
+                    '\u0394 held-out log-likelihood\n(\u00d710\u207b\u00b3 per bin)', between_b)
 
     for ax, panel, measure, title, ylabel in zip(axes[2:], ['C', 'D', 'E'],
             ['peak', 'width', 'ramp rate'], ['Peak location', 'Gaussian width', 'Time constant'],
